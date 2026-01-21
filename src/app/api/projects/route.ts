@@ -5,10 +5,7 @@ import { authOptions } from '../auth/[...nextauth]/route';
 import { db } from '@/db';
 import { projects, tasks, users } from '@/db/schema';
 import { v4 as uuidv4 } from 'uuid';
-import { eq, inArray } from 'drizzle-orm';
-
-// Define explicit type
-type ProjectRow = typeof projects.$inferSelect;
+import { eq, inArray, and } from 'drizzle-orm'; // ← added 'and'
 
 // GET projects (role-aware)
 export async function GET() {
@@ -18,17 +15,25 @@ export async function GET() {
   }
 
   try {
-    let allProjects: ProjectRow[];
+    let allProjects: typeof projects.$inferSelect[] = [];
 
     if (session.user.role === 'ADMIN' || session.user.role === 'PROJECT_MANAGER') {
       // Admin & PM see ALL projects
       allProjects = await db.select().from(projects);
     } else if (session.user.role === 'TEAM_LEADER') {
-      // Team Leader sees projects with tasks assigned to their team
+      // Team Leader sees ONLY projects with tasks assigned to their team
+      // Fetch team members where:
+      // - team_leader_id = current user ID
+      // - team_type = current user's team_type
       const teamMembers = await db
         .select({ id: users.id })
         .from(users)
-        .where(eq(users.team_leader_id, session.user.id));
+        .where(
+          and(
+            eq(users.team_leader_id, session.user.id),
+            eq(users.team_type, session.user.team_type) // ← critical fix
+          )
+        );
 
       if (teamMembers.length === 0) {
         allProjects = [];
@@ -39,28 +44,22 @@ export async function GET() {
           .from(tasks)
           .where(inArray(tasks.assigned_to, teamMemberIds));
 
-        const projectIds = [...new Set(teamTasks.map(t => t.project_id))].filter(
-          id => typeof id !== 'undefined' && id !== null
-        );
-        allProjects =
-          projectIds.length > 0
-            ? await db.select().from(projects).where(inArray(projects.id, projectIds))
-            : [];
+        const projectIds = [...new Set(teamTasks.map(t => t.project_id))];
+        allProjects = projectIds.length > 0
+          ? await db.select().from(projects).where(inArray(projects.id, projectIds))
+          : [];
       }
     } else {
-      // Regular user: only projects with their tasks
+      // Developer/Designer/QA: only projects with their tasks
       const myTasks = await db
         .select({ project_id: tasks.project_id })
         .from(tasks)
         .where(eq(tasks.assigned_to, session.user.id));
 
-      const projectIds = [...new Set(myTasks.map(t => t.project_id))].filter(
-        id => typeof id !== 'undefined' && id !== null
-      );
-      allProjects =
-        projectIds.length > 0
-          ? await db.select().from(projects).where(inArray(projects.id, projectIds))
-          : [];
+      const projectIds = [...new Set(myTasks.map(t => t.project_id))];
+      allProjects = projectIds.length > 0
+        ? await db.select().from(projects).where(inArray(projects.id, projectIds))
+        : [];
     }
 
     return Response.json({ projects: allProjects });
@@ -77,12 +76,11 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Only ADMIN or PROJECT_MANAGER can create projects
   if (session.user.role !== 'ADMIN' && session.user.role !== 'PROJECT_MANAGER') {
     return Response.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
-  const { name, client_name, website_url, flavor_order_id } = await req.json();
+  const { name, client_name, website_url, fiverr_order_id } = await req.json(); // ← fixed typo
 
   if (!name) {
     return Response.json({ error: 'Project name is required' }, { status: 400 });
@@ -94,7 +92,7 @@ export async function POST(req: NextRequest) {
       name,
       client_name: client_name || null,
       website_url: website_url || null,
-      flavor_order_id: flavor_order_id || null,
+      fiverr_order_id: fiverr_order_id || null, // ← fixed typo
       status: 'CLIENT',
       created_by: session.user.id,
       created_at: new Date(),

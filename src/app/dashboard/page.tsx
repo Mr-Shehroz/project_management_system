@@ -1,13 +1,14 @@
 // src/app/dashboard/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
-import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import CreateTaskModal from './create-task-modal';
 import QAReviewModal from './qa-review-modal';
-import TaskDetailSidebar from './task-detail-sidebar'; // ← NEW
+import TaskDetailSidebar from './task-detail-sidebar';
+import NotificationToast from './NotificationToast';
 
 type Task = {
   id: string;
@@ -24,6 +25,7 @@ type User = {
   name: string;
   username: string;
   team_type: string;
+  role: string;
 };
 
 type Column = {
@@ -33,6 +35,14 @@ type Column = {
 };
 
 type TasksMap = Record<string, Task>;
+
+type Notification = {
+  id: string;
+  title: string;
+  message: string;
+  taskId?: string;
+  timestamp: Date;
+};
 
 const initialColumns: Record<string, Column> = {
   PENDING: { id: 'PENDING', title: 'Pending', taskIds: [] },
@@ -45,57 +55,230 @@ const initialColumns: Record<string, Column> = {
 export default function KanbanBoard() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const projectId = searchParams.get('project');
 
   const [columns, setColumns] = useState<Record<string, Column>>(initialColumns);
   const [tasks, setTasks] = useState<TasksMap>({});
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showQAModal, setShowQAModal] = useState<string | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null); // ← for detail sidebar
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showQAModal, setShowQAModal] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  
+  // Track shown notifications to avoid duplicates
+  const shownNotifications = useRef<Set<string>>(new Set());
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Initialize audio
   useEffect(() => {
-    if (status === 'loading') return;
-    if (!session) {
-      router.push('/login');
+    audioRef.current = new Audio('/notification.mp3');
+    audioRef.current.volume = 0.7;
+  }, []);
+
+  // Request notification permission on mount
+  useEffect(() => {
+    if (!session) return;
+
+    const checkAndRequestPermission = async () => {
+      if (!('Notification' in window)) {
+        console.error('This browser does not support desktop notifications');
+        return;
+      }
+
+      setNotificationPermission(Notification.permission);
+
+      if (Notification.permission === 'default') {
+        console.log('Requesting notification permission...');
+        const permission = await Notification.requestPermission();
+        setNotificationPermission(permission);
+        
+        if (permission === 'granted') {
+          console.log('✅ Notification permission granted!');
+          // Show test notification
+          showDesktopNotification(
+            'Notifications Enabled!',
+            'You will now receive task notifications even when this tab is inactive.',
+            undefined,
+            false // Don't play sound for welcome message
+          );
+        } else if (permission === 'denied') {
+          console.error('❌ Notification permission denied');
+          alert('Please enable notifications in your browser settings to receive task alerts.');
+        }
+      } else if (Notification.permission === 'granted') {
+        console.log('✅ Notification permission already granted');
+      } else {
+        console.error('❌ Notification permission was denied');
+      }
+    };
+
+    checkAndRequestPermission();
+  }, [session]);
+
+  // Play notification sound
+  const playNotificationSound = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0; // Reset to start
+      audioRef.current.play().catch(e => {
+        console.error('Failed to play notification sound:', e);
+      });
+    }
+  }, []);
+
+  // Show desktop notification (works even when browser is minimized)
+  const showDesktopNotification = useCallback((
+    title: string, 
+    message: string, 
+    taskId?: string,
+    playSound: boolean = true
+  ) => {
+    // Play sound first
+    if (playSound) {
+      playNotificationSound();
+    }
+
+    // Check if notifications are supported and permitted
+    if (!('Notification' in window)) {
+      console.error('Browser does not support notifications');
       return;
     }
-    fetchTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, status, router]);
 
-  useEffect(() => {
+    if (Notification.permission !== 'granted') {
+      console.warn('Notification permission not granted. Current status:', Notification.permission);
+      return;
+    }
+
+    try {
+      // Create desktop notification
+      const notification = new Notification(title, {
+        body: message,
+        icon: '/favicon.ico',
+        badge: '/favicon.ico',
+        tag: taskId || `notification-${Date.now()}`,
+        requireInteraction: false,
+        silent: false, // Allow sound
+        // @ts-expect-error 'vibrate' is a valid Notification option in some browsers but not in the TS type
+        vibrate: [200, 100, 200],
+      });
+
+      console.log('✅ Desktop notification created:', title);
+
+      // Handle notification click
+      notification.onclick = function(event) {
+        event.preventDefault();
+        console.log('Notification clicked');
+        
+        // Focus the window
+        window.focus();
+        
+        // Navigate to task if taskId provided
+        if (taskId) {
+          window.location.href = `/dashboard?task=${taskId}`;
+        }
+        
+        // Close the notification
+        notification.close();
+      };
+
+      // Auto close after 10 seconds
+      setTimeout(() => {
+        notification.close();
+      }, 10000);
+
+      // Handle notification errors
+      notification.onerror = function(event) {
+        console.error('Notification error:', event);
+      };
+
+    } catch (error) {
+      console.error('Failed to create notification:', error);
+    }
+  }, [playNotificationSound]);
+
+  // Show in-app toast notification (only when page is active)
+  const showInAppNotification = useCallback((title: string, message: string, taskId?: string) => {
+    const newNotification: Notification = {
+      id: Date.now().toString(),
+      title,
+      message,
+      taskId,
+      timestamp: new Date()
+    };
+
+    setNotifications(prev => [...prev, newNotification]);
+  }, []);
+
+  const removeNotification = (id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const handleNotificationClick = (notification: Notification) => {
+    if (notification.taskId) {
+      setSelectedTaskId(notification.taskId);
+    }
+    removeNotification(notification.id);
+  };
+
+  // Fetch projects
+  const fetchProjects = useCallback(async () => {
+    try {
+      const res = await fetch('/api/projects');
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data.projects || []);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  // Fetch team members
+  const fetchTeamMembers = useCallback(async () => {
     if (
       session?.user?.role === 'ADMIN' ||
       session?.user?.role === 'PROJECT_MANAGER' ||
       session?.user?.role === 'TEAM_LEADER'
     ) {
-      fetch('/api/projects')
-        .then((res) => res.json())
-        .then((data) => setProjects(data.projects || []));
-
-      fetch('/api/users/team')
-        .then((res) => res.json())
-        .then((data) => setTeamMembers(data.users || []));
+      try {
+        const res = await fetch('/api/users/team');
+        if (res.ok) {
+          const data = await res.json();
+          setTeamMembers((data.users || []).map((u: any) => ({
+            ...u,
+            role: u.role || '',
+          })));
+        }
+      } catch (err) {
+        console.error(err);
+      }
     }
   }, [session]);
 
-  const fetchTasks = async () => {
+  // Fetch tasks
+  const fetchTasks = useCallback(async () => {
     try {
-      const res = await fetch('/api/tasks');
+      let url = '/api/tasks';
+      if (projectId) {
+        url += `?project=${projectId}`;
+      }
+
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch tasks');
       const data = await res.json();
 
       const tasksMap: TasksMap = {};
       const cols: Record<string, Column> = {
-        PENDING: { id: 'PENDING', title: 'Pending', taskIds: [] },
-        IN_PROGRESS: { id: 'IN_PROGRESS', title: 'In Progress', taskIds: [] },
-        WAITING_FOR_QA: { id: 'WAITING_FOR_QA', title: 'Waiting for QA', taskIds: [] },
-        APPROVED: { id: 'APPROVED', title: 'Approved', taskIds: [] },
-        REWORK: { id: 'REWORK', title: 'Rework', taskIds: [] },
+        PENDING: { ...initialColumns.PENDING, taskIds: [] },
+        IN_PROGRESS: { ...initialColumns.IN_PROGRESS, taskIds: [] },
+        WAITING_FOR_QA: { ...initialColumns.WAITING_FOR_QA, taskIds: [] },
+        APPROVED: { ...initialColumns.APPROVED, taskIds: [] },
+        REWORK: { ...initialColumns.REWORK, taskIds: [] }
       };
 
-      (data.tasks || []).forEach((task: Task) => {
+      data.tasks.forEach((task: Task) => {
         tasksMap[task.id] = task;
         if (cols[task.status]) {
           cols[task.status].taskIds.push(task.id);
@@ -107,9 +290,99 @@ export default function KanbanBoard() {
     } catch (err) {
       console.error(err);
     }
-  };
+  }, [projectId]);
 
-  // (handleStartTimer and handleStopTimer NOT used in this file but left for completeness)
+  // Poll for notifications (THIS IS THE KEY PART)
+  useEffect(() => {
+    if (!session) return;
+
+    const pollNotifications = async () => {
+      try {
+        const res = await fetch('/api/notifications');
+        if (res.ok) {
+          const data = await res.json();
+          
+          // Find unread notifications that haven't been shown yet
+          const unread = data.notifications.filter((n: any) => 
+            !n.is_read && !shownNotifications.current.has(n.id)
+          );
+          
+          console.log(`Found ${unread.length} new notifications`);
+          
+          // Process each new notification
+          for (const note of unread) {
+            // Add to shown set to prevent duplicates
+            shownNotifications.current.add(note.id);
+            
+            console.log('Showing notification:', note);
+            
+            // ALWAYS show desktop notification (works even when tab is inactive)
+            showDesktopNotification(
+              '🔔 New Task Assigned',
+              `You have been assigned a task in "${note.project_name}"`,
+              note.task_id,
+              true // Play sound
+            );
+            
+            // Also show in-app toast if page is visible
+            if (document.visibilityState === 'visible') {
+              showInAppNotification(
+                'New Task Assigned',
+                `You have been assigned a task in "${note.project_name}"`,
+                note.task_id
+              );
+            }
+            
+            // Mark as read
+            try {
+              await fetch('/api/notifications', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notificationId: note.id })
+              });
+            } catch (e) {
+              console.error('Failed to mark notification as read:', e);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to poll notifications:', err);
+      }
+    };
+
+    // Poll immediately on mount
+    console.log('Starting notification polling...');
+    pollNotifications();
+    
+    // Then poll every 10 seconds
+    const interval = setInterval(() => {
+      console.log('Polling for notifications...');
+      pollNotifications();
+    }, 10000);
+
+    return () => {
+      console.log('Stopping notification polling');
+      clearInterval(interval);
+    };
+  }, [session, showDesktopNotification, showInAppNotification]);
+
+  useEffect(() => {
+    if (status === 'loading') return;
+    if (!session) {
+      router.push('/login');
+      return;
+    }
+    fetchProjects();
+    fetchTeamMembers();
+  }, [session, status, router, fetchProjects, fetchTeamMembers]);
+
+  useEffect(() => {
+    if (session) {
+      fetchTasks();
+    }
+  }, [session, projectId, fetchTasks]);
+
+  // Timer handlers
   const handleStartTimer = async (taskId: string) => {
     try {
       const res = await fetch('/api/timers', {
@@ -144,7 +417,8 @@ export default function KanbanBoard() {
     }
   };
 
-  const onDragEnd = async (result: DropResult) => {
+  // Drag & Drop
+  const onDragEnd = async (result: any) => {
     const { source, destination, draggableId } = result;
 
     if (!destination) return;
@@ -173,11 +447,11 @@ export default function KanbanBoard() {
     const newStatus = destination.droppableId;
     const oldStatus = source.droppableId;
 
-    if (!session?.user) {
-      alert('Not authenticated');
+    if (!task || !session?.user) {
       fetchTasks();
       return;
     }
+
     if (oldStatus === 'PENDING' && task.assigned_to !== session.user.id) {
       alert('Only the assigned member can start this task');
       fetchTasks();
@@ -214,23 +488,93 @@ export default function KanbanBoard() {
     }
   };
 
+  const handleRequestPermission = async () => {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission === 'granted') {
+        showDesktopNotification(
+          'Success!',
+          'Desktop notifications are now enabled.',
+          undefined,
+          true
+        );
+      }
+    }
+  };
+
   if (status === 'loading') {
     return <div className="p-6 text-gray-800 dark:text-gray-200">Loading...</div>;
   }
 
+  const currentProject = projects.find(p => p.id === projectId);
+
   return (
     <div className="p-4 sm:p-6">
-      <h1 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white">Project Board</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
+          {currentProject ? currentProject.name : 'All Projects'}
+        </h1>
 
-      {(session?.user?.role === 'ADMIN' ||
-        session?.user?.role === 'PROJECT_MANAGER' ||
-        session?.user?.role === 'TEAM_LEADER') && (
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="mb-6 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-        >
-          + Create Task
-        </button>
+        {(session?.user?.role === 'ADMIN' ||
+          session?.user?.role === 'PROJECT_MANAGER' ||
+          session?.user?.role === 'TEAM_LEADER') && (
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+          >
+            + Add Task
+          </button>
+        )}
+      </div>
+
+      {/* Notification Permission Banner */}
+      {notificationPermission !== 'granted' && (
+        <div className={`mb-4 p-4 rounded-lg border ${
+          notificationPermission === 'denied' 
+            ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+            : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={`font-medium ${
+                notificationPermission === 'denied' 
+                  ? 'text-red-800 dark:text-red-200'
+                  : 'text-yellow-800 dark:text-yellow-200'
+              }`}>
+                {notificationPermission === 'denied' 
+                  ? '⚠️ Desktop notifications are blocked'
+                  : '🔔 Enable desktop notifications'}
+              </p>
+              <p className={`text-sm mt-1 ${
+                notificationPermission === 'denied' 
+                  ? 'text-red-600 dark:text-red-300'
+                  : 'text-yellow-700 dark:text-yellow-300'
+              }`}>
+                {notificationPermission === 'denied' 
+                  ? 'Please enable notifications in your browser settings to receive alerts when you\'re assigned new tasks.'
+                  : 'Get alerts for new task assignments even when this tab is inactive or your browser is minimized.'}
+              </p>
+            </div>
+            {notificationPermission === 'default' && (
+              <button
+                onClick={handleRequestPermission}
+                className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors text-sm font-medium whitespace-nowrap ml-4"
+              >
+                Enable Now
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Success message when notifications are enabled */}
+      {notificationPermission === 'granted' && (
+        <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+          <p className="text-sm text-green-800 dark:text-green-200">
+            ✅ Desktop notifications enabled - You'll receive alerts even when this tab is inactive
+          </p>
+        </div>
       )}
 
       <DragDropContext onDragEnd={onDragEnd}>
@@ -255,7 +599,7 @@ export default function KanbanBoard() {
                               ref={provided.innerRef}
                               {...provided.draggableProps}
                               {...provided.dragHandleProps}
-                              onClick={() => setSelectedTaskId(task.id)} // ← Open detail sidebar
+                              onClick={() => setSelectedTaskId(task.id)}
                               className="bg-white dark:bg-gray-700 p-4 rounded shadow-sm border border-gray-200 dark:border-gray-600 cursor-pointer hover:shadow-md transition-shadow"
                             >
                               <h3 className="font-semibold text-gray-800 dark:text-white">{task.title}</h3>
@@ -282,7 +626,6 @@ export default function KanbanBoard() {
         </div>
       </DragDropContext>
 
-      {/* Modals & Sidebar */}
       {showCreateModal && (
         <CreateTaskModal
           projects={projects}
@@ -304,6 +647,16 @@ export default function KanbanBoard() {
           onClose={() => setSelectedTaskId(null)}
         />
       )}
+
+      {/* Render In-App Notifications (only when page is visible) */}
+      {notifications.map((notification) => (
+        <NotificationToast
+          key={notification.id}
+          notification={notification}
+          onClose={() => removeNotification(notification.id)}
+          onClick={() => handleNotificationClick(notification)}
+        />
+      ))}
     </div>
   );
 }

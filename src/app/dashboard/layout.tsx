@@ -2,8 +2,18 @@
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../api/auth/[...nextauth]/route';
+import NotificationsBell from './notifications-bell';
+import { db } from '@/db';
+import { projects, tasks, users } from '@/db/schema';
+import { eq, inArray } from 'drizzle-orm';
+import SidebarClient from './sidebar-client'; // ← new import
 import Link from 'next/link';
-import NotificationsBell from './notifications-bell'; // ← new import
+
+// TypeScript: define Project type according to sidebar-client.tsx
+type Project = {
+  id: string;
+  name: string;
+};
 
 export default async function DashboardLayout({
   children,
@@ -16,43 +26,71 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
-  const navItems = [
-    { name: 'Dashboard', href: '/dashboard' },
-    ...(session.user.role === 'ADMIN'
-      ? [{ name: 'Admin', href: '/admin/register' }]
-      : []),
-  ];
+  // Fetch projects based on role (server-side)
+  let userProjects: Project[] = [];
+
+  if (session.user.role === 'ADMIN' || session.user.role === 'PROJECT_MANAGER') {
+    // Admin & PM see all projects
+    userProjects = (await db.select().from(projects)) as Project[];
+  } else if (session.user.role === 'TEAM_LEADER') {
+    // Team Leader sees projects with tasks assigned to their team
+    const teamMembers = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.team_leader_id, session.user.id));
+
+    if (teamMembers.length > 0) {
+      const teamMemberIds = teamMembers.map(u => u.id);
+      const teamTasks = await db
+        .select({ project_id: tasks.project_id })
+        .from(tasks)
+        .where(inArray(tasks.assigned_to, teamMemberIds));
+
+      const projectIds = [...new Set(teamTasks.map(t => t.project_id))];
+      if (projectIds.length > 0) {
+        userProjects = (await db
+          .select()
+          .from(projects)
+          .where(inArray(projects.id, projectIds))) as Project[];
+      }
+    }
+  } else {
+    // Developer/Designer/QA: only projects with their tasks
+    const myTasks = await db
+      .select({ project_id: tasks.project_id })
+      .from(tasks)
+      .where(eq(tasks.assigned_to, session.user.id));
+
+    const projectIds = [...new Set(myTasks.map(t => t.project_id))];
+    if (projectIds.length > 0) {
+      userProjects = (await db
+        .select()
+        .from(projects)
+        .where(inArray(projects.id, projectIds))) as Project[];
+    }
+  }
 
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Sidebar */}
       <aside className="w-64 bg-white dark:bg-gray-800 shadow-md flex flex-col">
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <h1 className="text-xl font-bold text-gray-800 dark:text-white">ProjectFlow</h1>
+          <Link href="/dashboard" className="text-xl font-bold text-gray-800 dark:text-white">ProjectFlow</Link>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{session.user.name}</p>
           <span className="inline-block mt-2 px-2 py-1 text-xs font-semibold text-white bg-blue-600 rounded">
             {session.user.role}
           </span>
         </div>
-        <nav className="p-4 flex-1">
-          <ul className="space-y-1">
-            {navItems.map((item) => (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className="block w-full px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
-                >
-                  {item.name}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
+
+        {/* Client-side sidebar content */}
+        <SidebarClient
+          userRole={session.user.role}
+          userProjects={userProjects}
+        />
       </aside>
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col">
-        {/* Top Bar */}
         <header className="p-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 flex justify-end">
           <NotificationsBell />
         </header>

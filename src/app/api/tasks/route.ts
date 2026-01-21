@@ -5,61 +5,76 @@ import { authOptions } from '../auth/[...nextauth]/route';
 import { db } from '@/db';
 import { tasks, users, notifications } from '@/db/schema';
 import { v4 as uuidv4 } from 'uuid';
-import { eq, and, inArray, or } from 'drizzle-orm'; // <-- Added 'or'
+import { eq, and, or, inArray } from 'drizzle-orm';
 
-// GET tasks (role-aware)
-export async function GET() {
+// GET tasks for current user (role-aware + project-filtered)
+export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Get project ID from query params
+  const { searchParams } = new URL(request.url);
+  const projectId = searchParams.get('project');
+
   try {
     let userTasks;
 
     if (session.user.role === 'ADMIN' || session.user.role === 'PROJECT_MANAGER') {
-      // Admin & PM see ALL tasks
-      userTasks = await db.select().from(tasks);
-    } else if (session.user.role === 'TEAM_LEADER') {
-      // Team Leader sees:
-      // - Tasks assigned to their team members
-      // - Tasks they created
-      const teamMembers = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.team_leader_id, session.user.id));
-
-      const teamMemberIds = teamMembers.map(u => u.id);
+      // Admin & PM: get all tasks (or filtered by project)
       userTasks = await db
         .select()
         .from(tasks)
+        .where(projectId ? eq(tasks.project_id, projectId) : undefined);
+    } else if (session.user.role === 'TEAM_LEADER') {
+      // Team Leader: get team's tasks (or filtered by project)
+      const teamMembers = await db
+        .select({ id: users.id })
+        .from(users)
         .where(
           and(
-            eq(tasks.team_type, session.user.team_type),
-            // Use 'or' from drizzle-orm
+            eq(users.team_leader_id, session.user.id),
+            eq(users.team_type, session.user.team_type)
+          )
+        );
+
+      const teamMemberIds = teamMembers.map(u => u.id);
+      const whereCondition = projectId
+        ? and(
+            eq(tasks.project_id, projectId),
             or(
               inArray(tasks.assigned_to, teamMemberIds),
               eq(tasks.assigned_by, session.user.id)
             )
           )
-        );
+        : or(
+            inArray(tasks.assigned_to, teamMemberIds),
+            eq(tasks.assigned_by, session.user.id)
+          );
+
+      userTasks = await db.select().from(tasks).where(whereCondition);
     } else if (session.user.role === 'QA') {
-      // QA sees tasks where they are qa_assigned_to AND status is WAITING_FOR_QA
-      userTasks = await db
-        .select()
-        .from(tasks)
-        .where(
-          and(
+      // QA: only WAITING_FOR_QA tasks (or filtered by project)
+      const whereCondition = projectId
+        ? and(
+            eq(tasks.project_id, projectId),
             eq(tasks.qa_assigned_to, session.user.id),
             eq(tasks.status, 'WAITING_FOR_QA')
           )
-        );
+        : and(
+            eq(tasks.qa_assigned_to, session.user.id),
+            eq(tasks.status, 'WAITING_FOR_QA')
+          );
+
+      userTasks = await db.select().from(tasks).where(whereCondition);
     } else {
-      // Developer/Designer: only their own tasks
-      userTasks = await db
-        .select()
-        .from(tasks)
-        .where(eq(tasks.assigned_to, session.user.id));
+      // Developer/Designer: only their tasks (or filtered by project)
+      const whereCondition = projectId
+        ? and(eq(tasks.project_id, projectId), eq(tasks.assigned_to, session.user.id))
+        : eq(tasks.assigned_to, session.user.id);
+
+      userTasks = await db.select().from(tasks).where(whereCondition);
     }
 
     return Response.json({ tasks: userTasks });
@@ -102,22 +117,16 @@ export async function POST(req: NextRequest) {
     const teamMembers = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.team_leader_id, session.user.id));
+      .where(
+        and(
+          eq(users.team_leader_id, session.user.id),
+          eq(users.team_type, team_type)
+        )
+      );
 
     const teamMemberIds = teamMembers.map(u => u.id);
     if (!teamMemberIds.includes(assigned_to)) {
       return Response.json({ error: 'You can only assign tasks to your team members' }, { status: 403 });
-    }
-
-    // Also ensure team_type matches
-    const assignee = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, assigned_to), eq(users.team_type, team_type)))
-      .limit(1);
-
-    if (assignee.length === 0) {
-      return Response.json({ error: 'Invalid assignee or team mismatch' }, { status: 400 });
     }
   } else {
     // ADMIN or PROJECT_MANAGER: can assign to anyone
@@ -140,8 +149,8 @@ export async function POST(req: NextRequest) {
       .from(users)
       .where(eq(users.id, qa_assigned_to))
       .limit(1);
-
-    if (qaUser.length === 0 || qaUser[0].team_type !== 'QA') {
+    
+    if (qaUser.length === 0 || qaUser[0].role !== 'QA') {
       return Response.json({ error: 'Invalid QA user' }, { status: 400 });
     }
     qaUserId = qaUser[0].id;

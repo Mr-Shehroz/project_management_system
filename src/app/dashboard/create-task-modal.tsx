@@ -1,7 +1,7 @@
 // src/app/dashboard/create-task-modal.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 
 type User = {
@@ -9,6 +9,7 @@ type User = {
   name: string;
   username: string;
   team_type: string;
+  role: string; // ← add role
 };
 
 export default function CreateTaskModal({
@@ -21,12 +22,23 @@ export default function CreateTaskModal({
   onClose: () => void;
 }) {
   const { data: session } = useSession();
+
+  // Get active project ID from URL
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const projectId = url.searchParams.get('project');
+    setActiveProjectId(projectId);
+  }, []);
+
+  // Initialize form with active project if exists
   const [formData, setFormData] = useState({
-    project_id: '',
+    project_id: activeProjectId || '',
     team_type: '',
     title: '',
     description: '',
-    priority: 'MEDIUM',
+    priority: 'MEDIUM' as const,
     assigned_to: '',
     qa_assigned_to: '',
     estimated_minutes: '',
@@ -65,7 +77,7 @@ export default function CreateTaskModal({
     }
   };
 
-  const qas = teamMembers.filter((user) => user.team_type === 'QA');
+  const qas = teamMembers.filter((user) => user.role === 'QA');
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -73,23 +85,44 @@ export default function CreateTaskModal({
         <h2 className="text-xl font-bold mb-4">Create New Task</h2>
         {error && <p className="text-red-600 mb-4">{error}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Project</label>
-            <select
-              value={formData.project_id}
-              onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
-              required
-              className="w-full border rounded px-3 py-2"
-            >
-              <option value="">Select Project</option>
-              {projects.map((proj) => (
-                <option key={proj.id} value={proj.id}>
-                  {proj.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Project field: show dropdown OR auto-filled */}
+          {activeProjectId ? (
+            // Auto-filled project (no dropdown)
+            <div>
+              <label className="block text-sm font-medium mb-1">Project</label>
+              <input
+                type="text"
+                value={projects.find(p => p.id === activeProjectId)?.name || 'Selected Project'}
+                disabled
+                className="w-full border rounded px-3 py-2 bg-gray-100 cursor-not-allowed"
+              />
+              <input
+                type="hidden"
+                name="project_id"
+                value={activeProjectId}
+              />
+            </div>
+          ) : (
+            // Show project dropdown
+            <div>
+              <label className="block text-sm font-medium mb-1">Project</label>
+              <select
+                value={formData.project_id}
+                onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
+                required
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">Select Project</option>
+                {projects.map((proj) => (
+                  <option key={proj.id} value={proj.id}>
+                    {proj.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
+          {/* Rest of the form remains the same */}
           <div>
             <label className="block text-sm font-medium mb-1">Team Type</label>
             <select
@@ -175,7 +208,7 @@ export default function CreateTaskModal({
               <label className="block text-sm font-medium mb-1">Priority</label>
               <select
                 value={formData.priority}
-                onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, priority: e.target.value as any })}
                 className="w-full border rounded px-3 py-2"
               >
                 <option value="LOW">Low</option>

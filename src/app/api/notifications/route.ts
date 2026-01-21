@@ -3,8 +3,8 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
 import { db } from '@/db';
-import { notifications } from '@/db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { notifications, tasks, projects } from '@/db/schema';
+import { eq, and, desc, count } from 'drizzle-orm';
 
 // GET unread notifications for current user
 export async function GET() {
@@ -14,17 +14,26 @@ export async function GET() {
   }
 
   try {
-    // Fetch last 20 notifications for the user (read + unread)
+    // Fetch notifications with project name
     const notificationList = await db
-      .select()
+      .select({
+        id: notifications.id,
+        type: notifications.type,
+        created_at: notifications.created_at,
+        is_read: notifications.is_read,
+        task_id: notifications.task_id,
+        project_name: projects.name,
+      })
       .from(notifications)
+      .innerJoin(tasks, eq(notifications.task_id, tasks.id))
+      .innerJoin(projects, eq(tasks.project_id, projects.id))
       .where(eq(notifications.user_id, session.user.id))
       .orderBy(desc(notifications.created_at))
       .limit(20);
 
-    // Count unread notifications for the user
+    // Count unread notifications
     const unreadCountRows = await db
-      .select({ count: notifications.id })
+      .select({ count: count() })
       .from(notifications)
       .where(
         and(
@@ -33,7 +42,6 @@ export async function GET() {
         )
       );
 
-    // $count() returns [{ count: number }], get that number
     const unreadCount = unreadCountRows?.[0]?.count ?? 0;
 
     return Response.json({

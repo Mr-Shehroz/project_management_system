@@ -11,7 +11,7 @@ import {
 import { sql } from 'drizzle-orm';
 
 export const UserRole = ['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER', 'DEVELOPER', 'DESIGNER', 'PROGRAMMER', 'QA'] as const;
-export const TeamType = ['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER', 'DEVELOPER', 'DESIGNER', 'PROGRAMMER', 'QA'] as const;
+export const TeamType = ['DEVELOPER', 'DESIGNER', 'PROGRAMMER'] as const;
 
 export type UserRoleType = (typeof UserRole)[number];
 export type TeamTypeType = (typeof TeamType)[number];
@@ -22,7 +22,7 @@ export const users = mysqlTable('users', {
     username: varchar('username', { length: 255 }).notNull().unique(),
     password: varchar('password', { length: 255 }).notNull(),
     role: mysqlEnum('role', UserRole).notNull(),
-    team_type: mysqlEnum('team_type', TeamType).notNull(),
+    team_type: mysqlEnum('team_type', TeamType),
     team_leader_id: varchar('team_leader_id', { length: 255 }),
     is_active: boolean('is_active').default(true).notNull(),
     created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
@@ -35,7 +35,7 @@ export const projects = mysqlTable('projects', {
     name: varchar('name', { length: 255 }).notNull(),
     client_name: varchar('client_name', { length: 255 }),
     website_url: varchar('website_url', { length: 255 }),
-    flavor_order_id: varchar('flavor_order_id', { length: 255 }),
+    fiverr_order_id: varchar('fiverr_order_id', { length: 255 }),
     status: mysqlEnum('status', ['CLIENT', 'COMPLETED']).notNull(),
     created_by: varchar('created_by', { length: 255 }).notNull(), // user.id
     created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
@@ -80,24 +80,15 @@ export const taskTimers = mysqlTable('task_timers', {
     created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
-// Task Dev Notes Table
-export const taskDevNotes = mysqlTable('task_dev_notes', {
+// Unified Task Notes Table
+export const taskNotes = mysqlTable('task_notes', {
     id: varchar('id', { length: 255 }).primaryKey(),
     task_id: varchar('task_id', { length: 255 }).notNull(),
-    developer_id: varchar('developer_id', { length: 255 }).notNull(),
+    user_id: varchar('user_id', { length: 255 }).notNull(), // author
     note: text('note').notNull(),
+    note_type: mysqlEnum('note_type', ['COMMENT', 'APPROVAL', 'REJECTION']).notNull(), // extensible
     created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
-
-// Task QA Notes Table
-export const taskQANotes = mysqlTable('task_qa_notes', {
-    id: varchar('id', { length: 255 }).primaryKey(),
-    task_id: varchar('task_id', { length: 255 }).notNull(),
-    qa_id: varchar('qa_id', { length: 255 }).notNull(),
-    status: mysqlEnum('status', ['APPROVED', 'REWORK']).notNull(),
-    note: text('note').notNull(),
-    created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+  });
 
 // Notifications Table
 export const notifications = mysqlTable('notifications', {
