@@ -9,6 +9,7 @@ import CreateTaskModal from './create-task-modal';
 import QAReviewModal from './qa-review-modal';
 import TaskDetailSidebar from './task-detail-sidebar';
 import NotificationToast from './NotificationToast';
+import EditTaskModal from './edit-task-modal';
 
 type Task = {
   id: string;
@@ -63,11 +64,12 @@ export default function KanbanBoard() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState<{ task: any } | null>(null);
   const [showQAModal, setShowQAModal] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
-  
+
   // Track shown notifications to avoid duplicates
   const shownNotifications = useRef<Set<string>>(new Set());
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -76,6 +78,15 @@ export default function KanbanBoard() {
   useEffect(() => {
     audioRef.current = new Audio('/notification.mp3');
     audioRef.current.volume = 0.7;
+  }, []);
+
+  useEffect(() => {
+    const handleEditTask = (e: CustomEvent) => {
+      setShowEditModal({ task: e.detail });
+    };
+
+    window.addEventListener('edit-task', handleEditTask as EventListener);
+    return () => window.removeEventListener('edit-task', handleEditTask as EventListener);
   }, []);
 
   // Request notification permission on mount
@@ -94,7 +105,7 @@ export default function KanbanBoard() {
         console.log('Requesting notification permission...');
         const permission = await Notification.requestPermission();
         setNotificationPermission(permission);
-        
+
         if (permission === 'granted') {
           console.log('✅ Notification permission granted!');
           // Show test notification
@@ -130,8 +141,8 @@ export default function KanbanBoard() {
 
   // Show desktop notification (works even when browser is minimized)
   const showDesktopNotification = useCallback((
-    title: string, 
-    message: string, 
+    title: string,
+    message: string,
     taskId?: string,
     playSound: boolean = true
   ) => {
@@ -167,18 +178,18 @@ export default function KanbanBoard() {
       console.log('✅ Desktop notification created:', title);
 
       // Handle notification click
-      notification.onclick = function(event) {
+      notification.onclick = function (event) {
         event.preventDefault();
         console.log('Notification clicked');
-        
+
         // Focus the window
         window.focus();
-        
+
         // Navigate to task if taskId provided
         if (taskId) {
           window.location.href = `/dashboard?task=${taskId}`;
         }
-        
+
         // Close the notification
         notification.close();
       };
@@ -189,7 +200,7 @@ export default function KanbanBoard() {
       }, 10000);
 
       // Handle notification errors
-      notification.onerror = function(event) {
+      notification.onerror = function (event) {
         console.error('Notification error:', event);
       };
 
@@ -301,21 +312,21 @@ export default function KanbanBoard() {
         const res = await fetch('/api/notifications');
         if (res.ok) {
           const data = await res.json();
-          
+
           // Find unread notifications that haven't been shown yet
-          const unread = data.notifications.filter((n: any) => 
+          const unread = data.notifications.filter((n: any) =>
             !n.is_read && !shownNotifications.current.has(n.id)
           );
-          
+
           console.log(`Found ${unread.length} new notifications`);
-          
+
           // Process each new notification
           for (const note of unread) {
             // Add to shown set to prevent duplicates
             shownNotifications.current.add(note.id);
-            
+
             console.log('Showing notification:', note);
-            
+
             // ALWAYS show desktop notification (works even when tab is inactive)
             showDesktopNotification(
               '🔔 New Task Assigned',
@@ -323,7 +334,7 @@ export default function KanbanBoard() {
               note.task_id,
               true // Play sound
             );
-            
+
             // Also show in-app toast if page is visible
             if (document.visibilityState === 'visible') {
               showInAppNotification(
@@ -332,7 +343,7 @@ export default function KanbanBoard() {
                 note.task_id
               );
             }
-            
+
             // Mark as read
             try {
               await fetch('/api/notifications', {
@@ -353,7 +364,7 @@ export default function KanbanBoard() {
     // Poll immediately on mount
     console.log('Starting notification polling...');
     pollNotifications();
-    
+
     // Then poll every 10 seconds
     const interval = setInterval(() => {
       console.log('Polling for notifications...');
@@ -519,39 +530,36 @@ export default function KanbanBoard() {
         {(session?.user?.role === 'ADMIN' ||
           session?.user?.role === 'PROJECT_MANAGER' ||
           session?.user?.role === 'TEAM_LEADER') && (
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-          >
-            + Add Task
-          </button>
-        )}
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+            >
+              + Add Task
+            </button>
+          )}
       </div>
 
       {/* Notification Permission Banner */}
       {notificationPermission !== 'granted' && (
-        <div className={`mb-4 p-4 rounded-lg border ${
-          notificationPermission === 'denied' 
-            ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-            : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-        }`}>
+        <div className={`mb-4 p-4 rounded-lg border ${notificationPermission === 'denied'
+          ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+          : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+          }`}>
           <div className="flex items-center justify-between">
             <div>
-              <p className={`font-medium ${
-                notificationPermission === 'denied' 
-                  ? 'text-red-800 dark:text-red-200'
-                  : 'text-yellow-800 dark:text-yellow-200'
-              }`}>
-                {notificationPermission === 'denied' 
+              <p className={`font-medium ${notificationPermission === 'denied'
+                ? 'text-red-800 dark:text-red-200'
+                : 'text-yellow-800 dark:text-yellow-200'
+                }`}>
+                {notificationPermission === 'denied'
                   ? '⚠️ Desktop notifications are blocked'
                   : '🔔 Enable desktop notifications'}
               </p>
-              <p className={`text-sm mt-1 ${
-                notificationPermission === 'denied' 
-                  ? 'text-red-600 dark:text-red-300'
-                  : 'text-yellow-700 dark:text-yellow-300'
-              }`}>
-                {notificationPermission === 'denied' 
+              <p className={`text-sm mt-1 ${notificationPermission === 'denied'
+                ? 'text-red-600 dark:text-red-300'
+                : 'text-yellow-700 dark:text-yellow-300'
+                }`}>
+                {notificationPermission === 'denied'
                   ? 'Please enable notifications in your browser settings to receive alerts when you\'re assigned new tasks.'
                   : 'Get alerts for new task assignments even when this tab is inactive or your browser is minimized.'}
               </p>
@@ -645,6 +653,15 @@ export default function KanbanBoard() {
         <TaskDetailSidebar
           taskId={selectedTaskId}
           onClose={() => setSelectedTaskId(null)}
+        />
+      )}
+      {showEditModal && (
+        <EditTaskModal
+          task={showEditModal.task}
+          projects={projects}
+          teamMembers={teamMembers}
+          onClose={() => setShowEditModal(null)}
+          onUpdated={fetchTasks}
         />
       )}
 

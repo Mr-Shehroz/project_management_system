@@ -76,7 +76,7 @@ export default function CreateTaskModal({
 
         if (res.ok) {
           const data = await res.json();
-          uploadedUrls.push(data.url);
+          uploadedUrls.push(data);
         }
       }
       return uploadedUrls;

@@ -67,7 +67,8 @@ export const tasks = mysqlTable('tasks', {
     completed_at: timestamp('completed_at'),
     locked_at: timestamp('locked_at'),
     created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-    updated_at: timestamp('updated_at').onUpdateNow(),
+    updated_at: timestamp('updated_at').default(sql`CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`),
+    
 });
 
 

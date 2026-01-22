@@ -164,20 +164,20 @@ export async function POST(req: NextRequest) {
   try {
     const taskId = uuidv4();
 
-    // files should be an array of file URLs (strings)
-    // Defensive: ensure files is an array of strings
     const filesToSave =
-      Array.isArray(files) && files.length > 0
-        ? files.map((f) =>
-            typeof f === 'string'
-              ? f
-              : f?.url // In case of array of objects {url, ...}
-                ? f.url
-                : null
-          ).filter(Boolean)
-        : [];
-
-    const filesJson = JSON.stringify(filesToSave);
+    Array.isArray(files) && files.length > 0
+      ? files.map((f) => ({
+          url: f.url,
+          public_id: f.public_id,
+          resource_type: f.resource_type,
+          original_name: f.original_name,
+          format: f.format,
+          bytes: f.bytes,
+        }))
+      : [];
+  
+  const filesJson = JSON.stringify(filesToSave);
+  
 
     await db.insert(tasks).values({
       id: taskId,
