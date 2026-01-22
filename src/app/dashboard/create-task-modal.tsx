@@ -46,6 +46,45 @@ export default function CreateTaskModal({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Add state for files
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  // Handle file selection
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setFiles(Array.from(e.target.files));
+    }
+  };
+
+  // Upload files to Vercel Blob
+  const uploadFiles = async () => {
+    if (files.length === 0) return [];
+
+    setUploading(true);
+    const uploadedUrls: string[] = [];
+
+    try {
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          uploadedUrls.push(data.url);
+        }
+      }
+      return uploadedUrls;
+    } finally {
+      setUploading(false);
+    }
+  };
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,11 +92,15 @@ export default function CreateTaskModal({
     setError('');
 
     try {
+      // Upload files first
+      const fileUrls = await uploadFiles();
+
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
+          files: fileUrls, // ← Add file URLs
           estimated_minutes: formData.estimated_minutes
             ? parseInt(formData.estimated_minutes)
             : null,
@@ -201,6 +244,23 @@ export default function CreateTaskModal({
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               className="w-full border rounded px-3 py-2"
             />
+          </div>
+
+          {/* File Upload */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Attachments</label>
+            <input
+              type="file"
+              multiple
+              onChange={handleFileChange}
+              className="w-full border rounded px-3 py-2"
+              disabled={uploading}
+            />
+            {files.length > 0 && (
+              <p className="text-sm text-gray-600 mt-1">
+                {files.length} file(s) selected
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

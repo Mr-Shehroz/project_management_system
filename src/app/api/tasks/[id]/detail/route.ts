@@ -4,11 +4,11 @@ import { authOptions } from '../../../auth/[...nextauth]/route';
 import { db } from '@/db';
 import { tasks, users as usersTable, projects } from '@/db/schema';
 import { eq } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core'; // Adjust based on your database
+import { alias } from 'drizzle-orm/mysql-core'; // Fixed: correct import for drizzle-orm v0.29+ MySQL
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   const session = await getServerSession(authOptions);
   if (!session) {
@@ -19,7 +19,7 @@ export async function GET(
   const { id } = await params;
 
   try {
-    // Create aliases using the alias() function
+    // Create aliases using the alias() function (MySQL version)
     const usersAssignedTo = alias(usersTable, 'users_assigned_to');
     const usersAssignedBy = alias(usersTable, 'users_assigned_by');
 
@@ -35,6 +35,7 @@ export async function GET(
         assigned_by_name: usersAssignedBy.name,
         project_name: projects.name,
         created_at: tasks.created_at,
+        files: tasks.files, // ← Add files field
       })
       .from(tasks)
       .innerJoin(usersAssignedTo, eq(tasks.assigned_to, usersAssignedTo.id))
@@ -61,7 +62,13 @@ export async function GET(
       return Response.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    return Response.json({ task: taskDetail[0] });
+    // Parse files JSON if exists
+    const taskWithFiles = {
+      ...task,
+      files: task.files ? JSON.parse(task.files) : [],
+    };
+
+    return Response.json({ task: taskWithFiles });
   } catch (err) {
     console.error(err);
     return Response.json({ error: 'Failed to fetch task' }, { status: 500 });

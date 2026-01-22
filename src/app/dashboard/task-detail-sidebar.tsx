@@ -75,8 +75,8 @@ export default function TaskDetailSidebar({
       const res = await fetch('/api/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          task_id: taskId, 
+        body: JSON.stringify({
+          task_id: taskId,
           note: newNote,
           note_type: 'COMMENT'
         }),
@@ -135,7 +135,7 @@ export default function TaskDetailSidebar({
           &times;
         </button>
         <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">{task.title}</h2>
-        
+
         <div className="space-y-4">
           <div>
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Description</h3>
@@ -158,15 +158,48 @@ export default function TaskDetailSidebar({
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Assigned By</h3>
             <p className="mt-1 text-gray-800 dark:text-gray-200">{task.assigned_by_name}</p>
           </div>
+          {/* Files */}
+          {(task as any).files && Array.isArray((task as any).files) && (task as any).files.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-sm font-medium text-gray-800 dark:text-white">Attachments</h3>
+              <div className="mt-2 space-y-2">
+                {(task as any).files.map((fileUrl: string, index: number) => {
+                  const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileUrl);
+                  return (
+                    <div key={index} className="flex items-center space-x-2">
+                      {isImage ? (
+                        <img
+                          src={fileUrl}
+                          alt="Attachment"
+                          className="w-12 h-12 object-cover rounded border"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center">
+                          <span className="text-blue-700 dark:text-blue-200 text-xs">📄</span>
+                        </div>
+                      )}
+                      <a
+                        href={fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline text-sm truncate max-w-[200px]"
+                      >
+                        {fileUrl.split('/').pop()}
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Priority</h3>
-              <span className={`inline-block mt-1 px-2 py-1 text-xs rounded ${
-                task.priority === 'HIGH' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
-                task.priority === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-              }`}>
+              <span className={`inline-block mt-1 px-2 py-1 text-xs rounded ${task.priority === 'HIGH' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
+                  task.priority === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                    'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                }`}>
                 {task.priority}
               </span>
             </div>
@@ -191,15 +224,14 @@ export default function TaskDetailSidebar({
             <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
               {notes.length > 0 ? (
                 notes.map((note) => (
-                  <div 
-                    key={note.id} 
-                    className={`p-3 rounded ${
-                      note.note_type === 'APPROVAL' 
+                  <div
+                    key={note.id}
+                    className={`p-3 rounded ${note.note_type === 'APPROVAL'
                         ? 'bg-green-100 dark:bg-green-900 border-l-4 border-green-500' :
-                      note.note_type === 'REJECTION' 
-                        ? 'bg-red-100 dark:bg-red-900 border-l-4 border-red-500' :
-                      'bg-gray-100 dark:bg-gray-700'
-                    }`}
+                        note.note_type === 'REJECTION'
+                          ? 'bg-red-100 dark:bg-red-900 border-l-4 border-red-500' :
+                          'bg-gray-100 dark:bg-gray-700'
+                      }`}
                   >
                     <p className="text-sm text-gray-800 dark:text-gray-200">{note.note}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">

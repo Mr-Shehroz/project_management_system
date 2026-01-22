@@ -35,6 +35,7 @@ export const projects = mysqlTable('projects', {
     name: varchar('name', { length: 255 }).notNull(),
     client_name: varchar('client_name', { length: 255 }),
     website_url: varchar('website_url', { length: 255 }),
+    files: text('files'),
     fiverr_order_id: varchar('fiverr_order_id', { length: 255 }),
     status: mysqlEnum('status', ['CLIENT', 'COMPLETED']).notNull(),
     created_by: varchar('created_by', { length: 255 }).notNull(), // user.id
@@ -49,6 +50,7 @@ export const tasks = mysqlTable('tasks', {
     team_type: mysqlEnum('team_type', TeamType).notNull(),
     title: varchar('title', { length: 255 }).notNull(),
     description: text('description'),
+    files: text('files'),
     priority: mysqlEnum('priority', ['LOW', 'MEDIUM', 'HIGH']).notNull(),
     assigned_by: varchar('assigned_by', { length: 255 }).notNull(), // user.id
     assigned_to: varchar('assigned_to', { length: 255 }).notNull(), // user.id

@@ -42,30 +42,30 @@ export async function GET(request: NextRequest) {
       const teamMemberIds = teamMembers.map(u => u.id);
       const whereCondition = projectId
         ? and(
-            eq(tasks.project_id, projectId),
-            or(
-              inArray(tasks.assigned_to, teamMemberIds),
-              eq(tasks.assigned_by, session.user.id)
-            )
-          )
-        : or(
+          eq(tasks.project_id, projectId),
+          or(
             inArray(tasks.assigned_to, teamMemberIds),
             eq(tasks.assigned_by, session.user.id)
-          );
+          )
+        )
+        : or(
+          inArray(tasks.assigned_to, teamMemberIds),
+          eq(tasks.assigned_by, session.user.id)
+        );
 
       userTasks = await db.select().from(tasks).where(whereCondition);
     } else if (session.user.role === 'QA') {
       // QA: only WAITING_FOR_QA tasks (or filtered by project)
       const whereCondition = projectId
         ? and(
-            eq(tasks.project_id, projectId),
-            eq(tasks.qa_assigned_to, session.user.id),
-            eq(tasks.status, 'WAITING_FOR_QA')
-          )
+          eq(tasks.project_id, projectId),
+          eq(tasks.qa_assigned_to, session.user.id),
+          eq(tasks.status, 'WAITING_FOR_QA')
+        )
         : and(
-            eq(tasks.qa_assigned_to, session.user.id),
-            eq(tasks.status, 'WAITING_FOR_QA')
-          );
+          eq(tasks.qa_assigned_to, session.user.id),
+          eq(tasks.status, 'WAITING_FOR_QA')
+        );
 
       userTasks = await db.select().from(tasks).where(whereCondition);
     } else {
@@ -77,7 +77,13 @@ export async function GET(request: NextRequest) {
       userTasks = await db.select().from(tasks).where(whereCondition);
     }
 
-    return Response.json({ tasks: userTasks });
+    // Parse files JSON if exists
+    const tasksWithFiles = userTasks.map(task => ({
+      ...task,
+      files: task.files ? JSON.parse(task.files) : [],
+    }));
+
+    return Response.json({ tasks: tasksWithFiles });
   } catch (err) {
     console.error('GET /api/tasks error:', err);
     return Response.json({ error: 'Failed to fetch tasks' }, { status: 500 });
@@ -105,6 +111,7 @@ export async function POST(req: NextRequest) {
     assigned_to,
     qa_assigned_to,
     estimated_minutes,
+    files, // Should be an array of file URLs/objects from frontend already uploaded
   } = await req.json();
 
   if (!project_id || !team_type || !title || !assigned_to) {
@@ -113,7 +120,6 @@ export async function POST(req: NextRequest) {
 
   // Validate assignment rules by role
   if (session.user.role === 'TEAM_LEADER') {
-    // Team Leader can only assign to their own team members
     const teamMembers = await db
       .select({ id: users.id })
       .from(users)
@@ -129,7 +135,6 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'You can only assign tasks to your team members' }, { status: 403 });
     }
   } else {
-    // ADMIN or PROJECT_MANAGER: can assign to anyone
     const assignee = await db
       .select()
       .from(users)
@@ -149,7 +154,7 @@ export async function POST(req: NextRequest) {
       .from(users)
       .where(eq(users.id, qa_assigned_to))
       .limit(1);
-    
+
     if (qaUser.length === 0 || qaUser[0].role !== 'QA') {
       return Response.json({ error: 'Invalid QA user' }, { status: 400 });
     }
@@ -158,6 +163,21 @@ export async function POST(req: NextRequest) {
 
   try {
     const taskId = uuidv4();
+
+    // files should be an array of file URLs (strings)
+    // Defensive: ensure files is an array of strings
+    const filesToSave =
+      Array.isArray(files) && files.length > 0
+        ? files.map((f) =>
+            typeof f === 'string'
+              ? f
+              : f?.url // In case of array of objects {url, ...}
+                ? f.url
+                : null
+          ).filter(Boolean)
+        : [];
+
+    const filesJson = JSON.stringify(filesToSave);
 
     await db.insert(tasks).values({
       id: taskId,
@@ -170,6 +190,7 @@ export async function POST(req: NextRequest) {
       assigned_to,
       qa_assigned_to: qaUserId,
       estimated_minutes: estimated_minutes ? parseInt(estimated_minutes, 10) : null,
+      files: filesJson, // ← Store files JSON array
       status: 'PENDING',
       created_at: new Date(),
     });
