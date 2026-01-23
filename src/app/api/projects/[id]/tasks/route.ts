@@ -7,12 +7,15 @@ import { eq, and, or, inArray } from 'drizzle-orm';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Await params
+  const { id } = await params;
 
   try {
     let projectTasks;
@@ -29,12 +32,13 @@ export async function GET(
         );
 
       const teamMemberIds = teamMembers.map(u => u.id);
+
       projectTasks = await db
         .select()
         .from(tasks)
         .where(
           and(
-            eq(tasks.project_id, params.id),
+            eq(tasks.project_id, id),
             or(
               inArray(tasks.assigned_to, teamMemberIds),
               eq(tasks.assigned_by, session.user.id)
@@ -42,12 +46,13 @@ export async function GET(
           )
         );
     } else {
+      // All other users: get their own tasks for this project
       projectTasks = await db
         .select()
         .from(tasks)
         .where(
           and(
-            eq(tasks.project_id, params.id),
+            eq(tasks.project_id, id),
             eq(tasks.assigned_to, session.user.id)
           )
         );

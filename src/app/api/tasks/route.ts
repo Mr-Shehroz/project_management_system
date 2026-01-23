@@ -102,100 +102,141 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
-  const {
-    project_id,
-    team_type,
-    title,
-    description,
-    priority,
-    assigned_to,
-    qa_assigned_to,
-    estimated_minutes,
-    files, // Should be an array of file URLs/objects from frontend already uploaded
-  } = await req.json();
-
-  if (!project_id || !team_type || !title || !assigned_to) {
-    return Response.json({ error: 'Missing required fields' }, { status: 400 });
-  }
-
-  // Validate assignment rules by role
-  if (session.user.role === 'TEAM_LEADER') {
-    const teamMembers = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(
-        and(
-          eq(users.team_leader_id, session.user.id),
-          eq(users.team_type, team_type)
-        )
-      );
-
-    const teamMemberIds = teamMembers.map(u => u.id);
-    if (!teamMemberIds.includes(assigned_to)) {
-      return Response.json({ error: 'You can only assign tasks to your team members' }, { status: 403 });
-    }
-  } else {
-    const assignee = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, assigned_to), eq(users.team_type, team_type)))
-      .limit(1);
-
-    if (assignee.length === 0) {
-      return Response.json({ error: 'Invalid assignee or team mismatch' }, { status: 400 });
-    }
-  }
-
-  // Validate QA user if provided
-  let qaUserId: string | null = null;
-  if (qa_assigned_to) {
-    const qaUser = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, qa_assigned_to))
-      .limit(1);
-
-    if (qaUser.length === 0 || qaUser[0].role !== 'QA') {
-      return Response.json({ error: 'Invalid QA user' }, { status: 400 });
-    }
-    qaUserId = qaUser[0].id;
-  }
-
   try {
+    const body = await req.json();
+    const {
+      project_id,
+      team_type,
+      title,
+      description,
+      priority,
+      assigned_to,
+      qa_assigned_to,
+      estimated_minutes,
+      files,
+    } = body;
+
+    // Log received data for debugging
+    console.log('Creating task with data:', {
+      project_id,
+      team_type,
+      title,
+      priority,
+      assigned_to,
+    });
+
+    // Validate required fields
+    if (!project_id || !team_type || !title || !assigned_to) {
+      console.error('Missing required fields:', { project_id, team_type, title, assigned_to });
+      return Response.json(
+        { 
+          error: 'Missing required fields', 
+          details: {
+            project_id: !project_id ? 'required' : 'ok',
+            team_type: !team_type ? 'required' : 'ok',
+            title: !title ? 'required' : 'ok',
+            assigned_to: !assigned_to ? 'required' : 'ok',
+          }
+        }, 
+        { status: 400 }
+      );
+    }
+
+    // Normalize priority to uppercase
+    const normalizedPriority = priority ? priority.toString().toUpperCase() : 'MEDIUM';
+    
+    // Validate priority value
+    if (!['LOW', 'MEDIUM', 'HIGH'].includes(normalizedPriority)) {
+      return Response.json(
+        { error: `Invalid priority value: ${priority}. Must be LOW, MEDIUM, or HIGH` },
+        { status: 400 }
+      );
+    }
+
+    // Validate assignment rules by role
+    if (session.user.role === 'TEAM_LEADER') {
+      const teamMembers = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          and(
+            eq(users.team_leader_id, session.user.id),
+            eq(users.team_type, team_type)
+          )
+        );
+
+      const teamMemberIds = teamMembers.map(u => u.id);
+      if (!teamMemberIds.includes(assigned_to)) {
+        return Response.json(
+          { error: 'You can only assign tasks to your team members' },
+          { status: 403 }
+        );
+      }
+    } else {
+      const assignee = await db
+        .select()
+        .from(users)
+        .where(and(eq(users.id, assigned_to), eq(users.team_type, team_type)))
+        .limit(1);
+
+      if (assignee.length === 0) {
+        return Response.json(
+          { error: 'Invalid assignee or team mismatch' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate QA user if provided
+    let qaUserId: string | null = null;
+    if (qa_assigned_to) {
+      const qaUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, qa_assigned_to))
+        .limit(1);
+
+      if (qaUser.length === 0 || qaUser[0].role !== 'QA') {
+        return Response.json({ error: 'Invalid QA user' }, { status: 400 });
+      }
+      qaUserId = qaUser[0].id;
+    }
+
     const taskId = uuidv4();
 
+    // Process files
     const filesToSave =
-    Array.isArray(files) && files.length > 0
-      ? files.map((f) => ({
-          url: f.url,
-          public_id: f.public_id,
-          resource_type: f.resource_type,
-          original_name: f.original_name,
-          format: f.format,
-          bytes: f.bytes,
-        }))
-      : [];
-  
-  const filesJson = JSON.stringify(filesToSave);
-  
+      Array.isArray(files) && files.length > 0
+        ? files.map((f) => ({
+            url: f.url || '',
+            public_id: f.public_id || '',
+            resource_type: f.resource_type || 'raw',
+            original_name: f.original_name || '',
+            format: f.format || '',
+            bytes: f.bytes || 0,
+          }))
+        : [];
 
+    const filesJson = filesToSave.length > 0 ? JSON.stringify(filesToSave) : null;
+
+    // Create task
     await db.insert(tasks).values({
       id: taskId,
       project_id,
       team_type,
-      title,
-      description: description || null,
-      priority: priority || 'MEDIUM',
+      title: title.trim(),
+      description: description?.trim() || null,
+      priority: normalizedPriority as 'LOW' | 'MEDIUM' | 'HIGH',
       assigned_by: session.user.id,
       assigned_to,
       qa_assigned_to: qaUserId,
       estimated_minutes: estimated_minutes ? parseInt(estimated_minutes, 10) : null,
-      files: filesJson, // ← Store files JSON array
+      files: filesJson,
       status: 'PENDING',
       created_at: new Date(),
     });
 
-    // 🔔 Notify assignee
+    // Create notification for assignee
     await db.insert(notifications).values({
       id: uuidv4(),
       user_id: assigned_to,
@@ -205,9 +246,16 @@ export async function POST(req: NextRequest) {
       created_at: new Date(),
     });
 
+    console.log('Task created successfully:', taskId);
     return Response.json({ success: true, taskId }, { status: 201 });
   } catch (err) {
     console.error('POST /api/tasks error:', err);
-    return Response.json({ error: 'Failed to create task' }, { status: 500 });
+    return Response.json(
+      { 
+        error: 'Failed to create task',
+        details: err instanceof Error ? err.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
   }
 }

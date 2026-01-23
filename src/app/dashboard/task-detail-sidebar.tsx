@@ -1,7 +1,7 @@
 // src/app/dashboard/task-detail-sidebar.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, KeyboardEvent, ChangeEvent } from 'react';
 import { useSession } from 'next-auth/react';
 
 // Add missing and proper typings for TaskDetail (was missing several fields used in the Edit event)
@@ -35,14 +35,16 @@ type Note = {
   id: string;
   user_id: string;
   note: string;
-  note_type: string; // 'COMMENT', 'APPROVAL', 'REJECTION'
+  note_type: string; // 'COMMENT', 'APPROVAL', 'REJECTION', 'FEEDBACK_IMAGE'
   created_at: string;
+  metadata?: string;
+  meta?: string; // Also accept 'meta' (bugfix for wrong property downstream)
 };
 
 // Helper function to get file icon based on extension
-const getFileIcon = (url: string) => {
-  const ext = url.split('.').pop()?.toLowerCase();
-  
+const getFileIcon = (filename: string) => {
+  const ext = filename.split('.').pop()?.toLowerCase();
+
   if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext || '')) return '🖼️';
   if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm'].includes(ext || '')) return '🎥';
   if (['mp3', 'wav', 'ogg', 'flac', 'aac'].includes(ext || '')) return '🎵';
@@ -51,14 +53,14 @@ const getFileIcon = (url: string) => {
   if (['xls', 'xlsx'].includes(ext || '')) return '📊';
   if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext || '')) return '📦';
   if (['txt'].includes(ext || '')) return '📃';
-  
+
   return '📎';
 };
 
 // Helper function to get file type label
-const getFileTypeLabel = (url: string) => {
-  const ext = url.split('.').pop()?.toLowerCase();
-  
+const getFileTypeLabel = (filename: string) => {
+  const ext = filename.split('.').pop()?.toLowerCase();
+
   if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext || '')) return 'Image';
   if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm'].includes(ext || '')) return 'Video';
   if (['mp3', 'wav', 'ogg', 'flac', 'aac'].includes(ext || '')) return 'Audio';
@@ -66,7 +68,7 @@ const getFileTypeLabel = (url: string) => {
   if (['doc', 'docx'].includes(ext || '')) return 'Word';
   if (['xls', 'xlsx'].includes(ext || '')) return 'Excel';
   if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext || '')) return 'Archive';
-  
+
   return 'File';
 };
 
@@ -102,7 +104,7 @@ export default function TaskDetailSidebar({
         setNotes(Array.isArray(notesData.notes) ? notesData.notes : []);
       } catch (err) {
         // Avoid spamming error logs in production, but for debug, this is fine
-        if (process.env.NODE_ENV !== 'production') console.error(err);
+        if (typeof process !== "undefined" && process.env.NODE_ENV !== 'production') console.error(err);
         setTask(null);
         setNotes([]);
       } finally {
@@ -143,9 +145,11 @@ export default function TaskDetailSidebar({
           const error = await res.json();
           errorMsg = error?.error || errorMsg;
         } catch { }
+        // eslint-disable-next-line no-alert
         alert(errorMsg);
       }
     } catch (err) {
+      // eslint-disable-next-line no-alert
       alert('Network error');
     } finally {
       setNoteLoading(false);
@@ -196,7 +200,7 @@ export default function TaskDetailSidebar({
           <div>
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Description</h3>
             <p className="mt-1 text-gray-800 dark:text-gray-200">
-              {task.description && typeof task.description === 'string' && task.description.trim()
+              {typeof task.description === 'string' && task.description && task.description.trim()
                 ? task.description
                 : 'No description'}
             </p>
@@ -257,30 +261,16 @@ export default function TaskDetailSidebar({
               </h3>
               <div className="space-y-2">
                 {task.files.map((file, index) => {
-                  // Safety check
                   if (!file || typeof file !== 'object') return null;
 
                   const isImage = file.resource_type === 'image';
-                  const isRaw = file.resource_type === 'raw';
-
-                  // Safe URL for raw files (PDFs, ZIPs)
-                  const downloadUrl = isRaw
-                    ? file.url?.replace('/upload/', '/upload/fl_attachment/') || file.url
-                    : file.url;
-
-                  // Get file extension
-                  const ext = file.original_name?.split('.').pop()?.toLowerCase() || '';
-
-                  // Determine if it's an image we can preview
-                  const canPreview = isImage ||
-                    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext);
 
                   return (
-                    <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <div key={file.public_id || String(index)} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                       <div className="flex items-start space-x-3">
                         {/* Preview/Icon */}
                         <div className="flex-shrink-0">
-                          {canPreview ? (
+                          {isImage ? (
                             <img
                               src={file.url}
                               alt={file.original_name || `Attachment ${index + 1}`}
@@ -299,7 +289,7 @@ export default function TaskDetailSidebar({
                             <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded">
                               {getFileTypeLabel(file.original_name || `File ${index + 1}`)}
                             </span>
-                            {file.bytes && (
+                            {typeof file.bytes === "number" && (
                               <span className="text-xs text-gray-500 dark:text-gray-400">
                                 {(file.bytes / 1024).toFixed(1)} KB
                               </span>
@@ -310,7 +300,7 @@ export default function TaskDetailSidebar({
                           </p>
 
                           {/* Media Preview */}
-                          {canPreview && (
+                          {isImage && (
                             <img
                               src={file.url}
                               alt={file.original_name || `Attachment ${index + 1}`}
@@ -321,9 +311,7 @@ export default function TaskDetailSidebar({
 
                           {/* Download Link */}
                           <a
-                            href={`/api/download?public_id=${encodeURIComponent(file.public_id || '')}
-&resource_type=${encodeURIComponent(file.resource_type || '')}
-&filename=${encodeURIComponent(file.original_name || `File ${index + 1}`)}`}
+                            href={`/api/download?public_id=${encodeURIComponent(file.public_id || '')}&resource_type=${encodeURIComponent(file.resource_type || '')}&filename=${encodeURIComponent(file.original_name || `File ${index + 1}`)}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center mt-2 text-blue-600 dark:text-blue-400 hover:underline text-xs"
@@ -381,10 +369,93 @@ export default function TaskDetailSidebar({
                       ? 'bg-green-100 dark:bg-green-900 border-l-4 border-green-500'
                       : note.note_type === 'REJECTION'
                         ? 'bg-red-100 dark:bg-red-900 border-l-4 border-red-500'
-                        : 'bg-gray-100 dark:bg-gray-700'
+                        : note.note_type === 'FEEDBACK_IMAGE'
+                          ? 'bg-blue-100 dark:bg-blue-900 border-l-4 border-blue-500'
+                          : 'bg-gray-100 dark:bg-gray-700'
                       }`}
                   >
-                    <p className="text-sm text-gray-800 dark:text-gray-200">{note.note}</p>
+                    {/* Main Note */}
+                    {note.note_type !== 'FEEDBACK_IMAGE' && (
+                      <p className="text-sm text-gray-800 dark:text-gray-200">{note.note}</p>
+                    )}
+
+                    {note.note_type === 'FEEDBACK_IMAGE' && (
+                      <div className="mb-2">
+                        <p className="text-sm text-gray-800 dark:text-gray-200 mb-2">{note.note}</p>
+                        {(note.meta || note.metadata) && (
+                          (() => {
+                            try {
+                              const metaRaw = note.meta ?? note.metadata;
+                              const meta = typeof metaRaw === "string" ? JSON.parse(metaRaw) : metaRaw;
+
+                              if (meta && meta.image && meta.image.url) {
+                                // Ensure we have a complete URL
+                                let imageUrl = meta.image.url;
+
+                                // If URL doesn't start with http, construct Cloudinary URL
+                                if (!imageUrl.startsWith('http') && meta.image.public_id) {
+                                  const format = meta.image.format || 'jpg';
+                                  imageUrl = `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload/${meta.image.public_id}.${format}`;
+                                }
+
+                                return (
+                                  <div className="mt-2">
+                                    <a
+                                      href={imageUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="block"
+                                    >
+                                      <img
+                                        src={imageUrl}
+                                        alt="Feedback"
+                                        className="w-full rounded border border-gray-300 dark:border-gray-600 cursor-pointer hover:opacity-90 transition-opacity"
+                                        style={{ maxHeight: '300px', objectFit: 'contain' }}
+                                        onError={(e) => {
+                                          // Fallback if image fails to load
+                                          const target = e.target as HTMLImageElement;
+                                          target.style.display = 'none';
+                                          const parent = target.parentElement;
+                                          if (parent) {
+                                            const fallback = document.createElement('div');
+                                            fallback.className = 'bg-gray-200 dark:bg-gray-700 p-4 rounded text-center text-sm text-gray-600 dark:text-gray-400';
+                                            fallback.innerHTML = `
+                          <svg class="w-12 h-12 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <p>Image failed to load</p>
+                          <p class="text-xs mt-1">${meta.image.original_name || 'Unknown file'}</p>
+                        `;
+                                            parent.appendChild(fallback);
+                                          }
+                                        }}
+                                      />
+                                    </a>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                      {meta.image.original_name || 'Feedback image'}
+                                      {meta.image.bytes && ` • ${(meta.image.bytes / 1024).toFixed(1)} KB`}
+                                    </p>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div className="bg-gray-200 dark:bg-gray-700 p-3 rounded text-center text-sm text-gray-600 dark:text-gray-400">
+                                  <p>No image data available</p>
+                                </div>
+                              );
+                            } catch (e) {
+                              console.error('Error parsing feedback image metadata:', e);
+                              return (
+                                <div className="bg-red-100 dark:bg-red-900 p-3 rounded text-center text-sm text-red-600 dark:text-red-400">
+                                  <p>Error loading image</p>
+                                </div>
+                              );
+                            }
+                          })()
+                        )}
+                      </div>
+                    )}
+
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       {note.note_type === 'APPROVAL' && (
                         <span className="inline-block mr-2 px-2 py-0.5 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 rounded text-[10px] font-medium">
@@ -410,13 +481,15 @@ export default function TaskDetailSidebar({
               <input
                 type="text"
                 value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setNewNote(e.target.value)}
                 placeholder="Add a comment..."
                 className="flex-1 border border-gray-300 dark:border-gray-600 rounded-l px-3 py-1 text-gray-900 dark:text-white bg-white dark:bg-gray-700 text-sm"
                 aria-label="Add a comment"
-                onKeyDown={e => {
+                onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                  // @ts-ignore
+                  const key = e.key ?? e.code;
                   if (
-                    (e.key === 'Enter' || e.keyCode === 13) &&
+                    (key === 'Enter' || e.keyCode === 13) &&
                     !noteLoading &&
                     newNote.trim()
                   ) {

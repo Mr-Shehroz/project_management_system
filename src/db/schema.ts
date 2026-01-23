@@ -83,15 +83,16 @@ export const taskTimers = mysqlTable('task_timers', {
     created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
-// Unified Task Notes Table
+// Unified Task Notes Table - UPDATED WITH FEEDBACK_IMAGE
 export const taskNotes = mysqlTable('task_notes', {
     id: varchar('id', { length: 255 }).primaryKey(),
     task_id: varchar('task_id', { length: 255 }).notNull(),
     user_id: varchar('user_id', { length: 255 }).notNull(), // author
     note: text('note').notNull(),
-    note_type: mysqlEnum('note_type', ['COMMENT', 'APPROVAL', 'REJECTION']).notNull(), // extensible
+    note_type: mysqlEnum('note_type', ['COMMENT', 'APPROVAL', 'REJECTION', 'FEEDBACK_IMAGE']).notNull(),
+    metadata: text('metadata'), // for image data
     created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-  });
+});
 
 // Notifications Table
 export const notifications = mysqlTable('notifications', {

@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { db } from '@/db';
 import { tasks, users } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, or } from 'drizzle-orm';
 
 export async function PUT(
   request: NextRequest,
@@ -28,14 +28,69 @@ export async function PUT(
     return Response.json({ error: 'Task not found' }, { status: 404 });
   }
 
-  // Only task assigner or admin can edit
-  if (
-    session.user.role !== 'ADMIN' &&
-    session.user.id !== currentTask[0].assigned_by
-  ) {
-    return Response.json({ error: 'Insufficient permissions' }, { status: 403 });
+  const requestData = await request.json();
+
+  // Handle status updates separately from field updates
+  if (requestData.status) {
+    const { status } = requestData;
+    
+    // Validate status transitions
+    const oldStatus = currentTask[0].status;
+    
+    // Only assigned member can move from PENDING to IN_PROGRESS
+    if (oldStatus === 'PENDING' && status === 'IN_PROGRESS') {
+      if (currentTask[0].assigned_to !== session.user.id) {
+        return Response.json({ error: 'Only the assigned member can start this task' }, { status: 403 });
+      }
+    }
+    
+    // Only assigned member can move from IN_PROGRESS to WAITING_FOR_QA
+    if (oldStatus === 'IN_PROGRESS' && status === 'WAITING_FOR_QA') {
+      if (currentTask[0].assigned_to !== session.user.id) {
+        return Response.json({ error: 'Only the assigned member can submit for QA' }, { status: 403 });
+      }
+    }
+    
+    // Only QA can approve or request rework
+    if ((status === 'APPROVED' || status === 'REWORK') && session.user.role !== 'QA') {
+      return Response.json({ error: 'Only QA can approve or request rework' }, { status: 403 });
+    }
+    
+    // Only Admin/PM/Team Leader can move back to PENDING (for rework handling)
+    if (status === 'PENDING' && 
+        !['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER'].includes(session.user.role)) {
+      return Response.json({ error: 'Insufficient permissions to reset task status' }, { status: 403 });
+    }
+
+    try {
+      // Special handling: when moving to WAITING_FOR_QA, clear QA assignment
+      if (status === 'WAITING_FOR_QA') {
+        await db
+          .update(tasks)
+          .set({
+            status: 'WAITING_FOR_QA',
+            qa_assigned_to: null, // Clear previous QA assignment
+            updated_at: new Date(),
+          })
+          .where(eq(tasks.id, id));
+      } else {
+        await db
+          .update(tasks)
+          .set({
+            status: status,
+            updated_at: new Date(),
+          })
+          .where(eq(tasks.id, id));
+      }
+
+      return Response.json({ success: true }, { status: 200 });
+    } catch (err) {
+      console.error('Status update error:', err);
+      return Response.json({ error: 'Failed to update task status' }, { status: 500 });
+    }
   }
 
+  // Handle field updates (title, description, etc.)
   const {
     title,
     description,
@@ -43,8 +98,16 @@ export async function PUT(
     assigned_to,
     qa_assigned_to,
     estimated_minutes,
-    files, // ← Accept files array
-  } = await request.json();
+    files,
+  } = requestData;
+
+  // Only task assigner or admin can edit fields
+  if (
+    session.user.role !== 'ADMIN' &&
+    session.user.id !== currentTask[0].assigned_by
+  ) {
+    return Response.json({ error: 'Insufficient permissions' }, { status: 403 });
+  }
 
   // Validate required fields
   if (!title || !assigned_to) {
@@ -93,14 +156,14 @@ export async function PUT(
         assigned_to,
         qa_assigned_to: qaUserId,
         estimated_minutes: estimated_minutes ? parseInt(estimated_minutes, 10) : null,
-        files: filesJson, // ← Update files
+        files: filesJson,
         updated_at: new Date(),
       })
       .where(eq(tasks.id, id));
 
     return Response.json({ success: true }, { status: 200 });
   } catch (err) {
-    console.error('PUT /api/tasks/[id] error:', err);
+    console.error('Field update error:', err);
     return Response.json({ error: 'Failed to update task' }, { status: 500 });
   }
 }

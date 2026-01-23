@@ -1,11 +1,10 @@
 'use client';
-
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-export default function LoginPage() {
+function LoginForm() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +29,6 @@ export default function LoginPage() {
     } else {
       router.push(callbackUrl);
     }
-
     setLoading(false);
   };
 
@@ -40,13 +38,11 @@ export default function LoginPage() {
         <h1 className="mb-6 text-center text-3xl font-extrabold text-gray-800">
           Project Management
         </h1>
-
         {error && (
           <p className="mb-4 rounded-md bg-red-100 px-4 py-2 text-center text-sm text-red-700">
             {error}
           </p>
         )}
-
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label
@@ -65,7 +61,6 @@ export default function LoginPage() {
               autoComplete="username"
             />
           </div>
-
           <div>
             <label
               htmlFor="password"
@@ -83,7 +78,6 @@ export default function LoginPage() {
               autoComplete="current-password"
             />
           </div>
-
           <button
             type="submit"
             disabled={loading}
@@ -92,11 +86,9 @@ export default function LoginPage() {
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
-
         <p className="mt-6 text-center text-sm text-gray-500">
           Only authorized users may log in.
         </p>
-
         <p className="mt-2 text-center text-sm text-gray-400">
           Don't have access?{' '}
           <Link
@@ -108,5 +100,17 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

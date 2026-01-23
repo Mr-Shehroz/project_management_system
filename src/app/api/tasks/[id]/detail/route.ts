@@ -8,7 +8,7 @@ import { alias } from 'drizzle-orm/mysql-core'; // Fixed: correct import for dri
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
   if (!session) {

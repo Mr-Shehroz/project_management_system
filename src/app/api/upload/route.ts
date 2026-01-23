@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   if (file.type.startsWith('image/')) resourceType = 'image';
   else if (file.type.startsWith('video/') || file.type.startsWith('audio/'))
-    resourceType = 'video'; // ⚠️ mp3 MUST be video in Cloudinary
+    resourceType = 'video';
 
   const publicId = `${uuidv4()}-${baseName}`;
 
@@ -48,10 +48,13 @@ export async function POST(request: NextRequest) {
     ).end(buffer);
   });
 
+  // Return complete URL from Cloudinary response
   return Response.json({
+    url: result.secure_url || result.url, // Use secure_url if available
     public_id: result.public_id,
     resource_type: result.resource_type,
     original_name: file.name,
     format: result.format || ext,
+    bytes: result.bytes,
   });
 }

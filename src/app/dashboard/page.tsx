@@ -428,6 +428,23 @@ export default function KanbanBoard() {
     }
   };
 
+  // Get status transition message
+  const getStatusTransitionMessage = (oldStatus: string, newStatus: string, taskTitle: string) => {
+    if (oldStatus === 'PENDING' && newStatus === 'IN_PROGRESS') {
+      return `Started working on "${taskTitle}"`;
+    }
+    if (oldStatus === 'IN_PROGRESS' && newStatus === 'WAITING_FOR_QA') {
+      return `Submitted "${taskTitle}" for QA review`;
+    }
+    if (newStatus === 'APPROVED') {
+      return `Approved "${taskTitle}"`;
+    }
+    if (newStatus === 'REWORK') {
+      return `Requested rework for "${taskTitle}"`;
+    }
+    return `Moved "${taskTitle}" to ${newStatus}`;
+  };
+
   // Drag & Drop
   const onDragEnd = async (result: any) => {
     const { source, destination, draggableId } = result;
@@ -463,6 +480,7 @@ export default function KanbanBoard() {
       return;
     }
 
+    // Validate permissions based on status change
     if (oldStatus === 'PENDING' && task.assigned_to !== session.user.id) {
       alert('Only the assigned member can start this task');
       fetchTasks();
@@ -482,6 +500,23 @@ export default function KanbanBoard() {
     }
 
     try {
+      // Handle special case: moving to WAITING_FOR_QA
+      if (newStatus === 'WAITING_FOR_QA' && oldStatus === 'IN_PROGRESS') {
+        // Send notification to Admin, PM, and Team Leader
+        const notifyRes = await fetch('/api/notifications/qa-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            task_id: draggableId,
+            project_id: task.project_id
+          }),
+        });
+
+        if (!notifyRes.ok) {
+          console.error('Failed to send QA request notification');
+        }
+      }
+
       const res = await fetch(`/api/tasks/${draggableId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -492,9 +527,16 @@ export default function KanbanBoard() {
         const data = await res.json();
         alert(data.error || 'Failed to update task');
         fetchTasks();
+      } else {
+        // Success - refresh tasks
+        fetchTasks();
+        
+        // Show success message
+        const message = getStatusTransitionMessage(oldStatus, newStatus, task.title);
+        console.log(message);
       }
     } catch (err) {
-      console.error('Update failed');
+      console.error('Update failed:', err);
       fetchTasks();
     }
   };
@@ -607,7 +649,20 @@ export default function KanbanBoard() {
                               ref={provided.innerRef}
                               {...provided.draggableProps}
                               {...provided.dragHandleProps}
-                              onClick={() => setSelectedTaskId(task.id)}
+                              onClick={() => {
+                                // Open QA modal if task is waiting for QA and user is authorized
+                                if (task.status === 'WAITING_FOR_QA') {
+                                  if (session?.user?.role === 'ADMIN' || 
+                                      session?.user?.role === 'PROJECT_MANAGER' || 
+                                      session?.user?.role === 'TEAM_LEADER') {
+                                    setShowQAModal(task.id);
+                                  } else if (session?.user?.role === 'QA') {
+                                    setShowQAModal(task.id);
+                                  }
+                                } else {
+                                  setSelectedTaskId(task.id);
+                                }
+                              }}
                               className="bg-white dark:bg-gray-700 p-4 rounded shadow-sm border border-gray-200 dark:border-gray-600 cursor-pointer hover:shadow-md transition-shadow"
                             >
                               <h3 className="font-semibold text-gray-800 dark:text-white">{task.title}</h3>
