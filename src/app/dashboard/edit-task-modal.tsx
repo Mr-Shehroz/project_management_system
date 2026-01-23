@@ -124,7 +124,7 @@ export default function EditTaskModal({
     e.preventDefault();
     setLoading(true);
     setError('');
-
+  
     try {
       // Upload new files
       const newFiles = await uploadNewFiles();
@@ -134,19 +134,45 @@ export default function EditTaskModal({
         ...existingFiles.filter(f => !removedFileIds.includes(f.public_id)),
         ...newFiles
       ];
-
+  
+      // Build update payload with only changed fields
+      const updatePayload: any = {};
+      
+      // Only include fields that have changed
+      if (formData.project_id !== task.project_id) {
+        updatePayload.project_id = formData.project_id;
+      }
+      if (formData.team_type !== task.team_type) {
+        updatePayload.team_type = formData.team_type;
+      }
+      if (formData.title !== task.title) {
+        updatePayload.title = formData.title;
+      }
+      if (formData.description !== (task.description || '')) {
+        updatePayload.description = formData.description;
+      }
+      if (formData.priority !== task.priority) {
+        updatePayload.priority = formData.priority;
+      }
+      if (formData.assigned_to !== task.assigned_to) {
+        updatePayload.assigned_to = formData.assigned_to;
+      }
+      if (formData.qa_assigned_to !== (task.qa_assigned_to || '')) {
+        updatePayload.qa_assigned_to = formData.qa_assigned_to || null;
+      }
+      if (formData.estimated_minutes !== (task.estimated_minutes?.toString() || '')) {
+        updatePayload.estimated_minutes = formData.estimated_minutes || null;
+      }
+      if (JSON.stringify(finalFiles) !== JSON.stringify(task.files || [])) {
+        updatePayload.files = finalFiles;
+      }
+  
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          files: finalFiles,
-          estimated_minutes: formData.estimated_minutes
-            ? parseInt(formData.estimated_minutes)
-            : null,
-        }),
+        body: JSON.stringify(updatePayload),
       });
-
+  
       if (res.ok) {
         onUpdated();
         onClose();

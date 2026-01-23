@@ -232,7 +232,7 @@ export async function POST(req: NextRequest) {
       qa_assigned_to: qaUserId,
       estimated_minutes: estimated_minutes ? parseInt(estimated_minutes, 10) : null,
       files: filesJson,
-      status: 'PENDING',
+      status: 'IN_PROGRESS',
       created_at: new Date(),
     });
 

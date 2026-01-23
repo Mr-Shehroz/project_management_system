@@ -57,7 +57,6 @@ export const tasks = mysqlTable('tasks', {
     qa_assigned_to: varchar('qa_assigned_to', { length: 255 }), // optional
     estimated_minutes: int('estimated_minutes'),
     status: mysqlEnum('status', [
-        'PENDING',
         'IN_PROGRESS',
         'WAITING_FOR_QA',
         'APPROVED',

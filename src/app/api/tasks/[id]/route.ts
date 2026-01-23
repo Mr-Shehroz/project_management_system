@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { db } from '@/db';
-import { tasks, users } from '@/db/schema';
+import { tasks, users, projects } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 
 export async function PUT(
@@ -30,8 +30,8 @@ export async function PUT(
 
   const requestData = await request.json();
 
-  // Handle status updates separately from field updates
-  if (requestData.status) {
+  // Handle status updates separately
+  if (requestData.status !== undefined) {
     const { status } = requestData;
     
     // Validate status transitions
@@ -56,7 +56,7 @@ export async function PUT(
       return Response.json({ error: 'Only QA can approve or request rework' }, { status: 403 });
     }
     
-    // Only Admin/PM/Team Leader can move back to PENDING (for rework handling)
+    // Only Admin/PM/Team Leader can move back to PENDING
     if (status === 'PENDING' && 
         !['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER'].includes(session.user.role)) {
       return Response.json({ error: 'Insufficient permissions to reset task status' }, { status: 403 });
@@ -69,7 +69,7 @@ export async function PUT(
           .update(tasks)
           .set({
             status: 'WAITING_FOR_QA',
-            qa_assigned_to: null, // Clear previous QA assignment
+            qa_assigned_to: null,
             updated_at: new Date(),
           })
           .where(eq(tasks.id, id));
@@ -90,73 +90,141 @@ export async function PUT(
     }
   }
 
-  // Handle field updates (title, description, etc.)
-  const {
-    title,
-    description,
-    priority,
-    assigned_to,
-    qa_assigned_to,
-    estimated_minutes,
-    files,
-  } = requestData;
+  // Determine if this is a full update (Edit Task Modal) or partial update (Inline Editing)
+  const isFullUpdate = 
+    requestData.project_id !== undefined ||
+    requestData.team_type !== undefined ||
+    requestData.assigned_to !== undefined;
 
-  // Only task assigner or admin can edit fields
-  if (
-    session.user.role !== 'ADMIN' &&
-    session.user.id !== currentTask[0].assigned_by
-  ) {
-    return Response.json({ error: 'Insufficient permissions' }, { status: 403 });
+  // Permission check
+  const canEditFields = 
+    session.user.role === 'ADMIN' ||
+    session.user.role === 'PROJECT_MANAGER' ||
+    session.user.role === 'TEAM_LEADER';
+
+  if (!canEditFields) {
+    return Response.json({ error: 'Insufficient permissions to edit task fields' }, { status: 403 });
   }
 
-  // Validate required fields
-  if (!title || !assigned_to) {
-    return Response.json({ error: 'Missing required fields' }, { status: 400 });
-  }
+  // Build update fields object
+  const updateFields: any = {};
 
-  // Validate assignee exists and matches team
-  const assignee = await db
-    .select()
-    .from(users)
-    .where(and(eq(users.id, assigned_to), eq(users.team_type, currentTask[0].team_type)))
-    .limit(1);
+  // Handle full update validation (Edit Task Modal)
+  if (isFullUpdate) {
+    // Validate required fields for full updates
+    if (!requestData.project_id || !requestData.team_type || !requestData.assigned_to) {
+      return Response.json({ error: 'Missing required fields' }, { status: 400 });
+    }
 
-  if (assignee.length === 0) {
-    return Response.json({ error: 'Invalid assignee or team mismatch' }, { status: 400 });
-  }
-
-  // Validate QA user if provided
-  let qaUserId: string | null = null;
-  if (qa_assigned_to) {
-    const qaUser = await db
+    // Validate project exists
+    const project = await db
       .select()
-      .from(users)
-      .where(eq(users.id, qa_assigned_to))
+      .from(projects)
+      .where(eq(projects.id, requestData.project_id))
       .limit(1);
     
-    if (qaUser.length === 0 || qaUser[0].role !== 'QA') {
-      return Response.json({ error: 'Invalid QA user' }, { status: 400 });
+    if (project.length === 0) {
+      return Response.json({ error: 'Invalid project' }, { status: 400 });
     }
-    qaUserId = qaUser[0].id;
+
+    // Validate team_type
+    const validTeamTypes = ['DEVELOPER', 'DESIGNER', 'PROGRAMMER'];
+    if (!validTeamTypes.includes(requestData.team_type)) {
+      return Response.json({ error: 'Invalid team type' }, { status: 400 });
+    }
+
+    // Validate assignee exists and matches team
+    const assignee = await db
+      .select()
+      .from(users)
+      .where(and(
+        eq(users.id, requestData.assigned_to),
+        eq(users.team_type, requestData.team_type)
+      ))
+      .limit(1);
+
+    if (assignee.length === 0) {
+      return Response.json({ error: 'Invalid assignee or team mismatch' }, { status: 400 });
+    }
+
+    // Set all fields for full update
+    updateFields.project_id = requestData.project_id;
+    updateFields.team_type = requestData.team_type;
+    updateFields.assigned_to = requestData.assigned_to;
+  }
+
+  // Handle title (both full and partial)
+  if (requestData.title !== undefined) {
+    if (requestData.title.trim() === '') {
+      return Response.json({ error: 'Title cannot be empty' }, { status: 400 });
+    }
+    updateFields.title = requestData.title.trim();
+  }
+  
+  // Handle description (both full and partial)
+  if (requestData.description !== undefined) {
+    updateFields.description = requestData.description.trim() || null;
+  }
+  
+  // Handle priority (both full and partial)
+  if (requestData.priority !== undefined) {
+    const validPriorities = ['LOW', 'MEDIUM', 'HIGH'];
+    if (!validPriorities.includes(requestData.priority)) {
+      return Response.json({ error: 'Invalid priority' }, { status: 400 });
+    }
+    updateFields.priority = requestData.priority;
+  }
+  
+  // Handle QA Assigned To (both full and partial)
+  if (requestData.qa_assigned_to !== undefined) {
+    if (requestData.qa_assigned_to === null) {
+      updateFields.qa_assigned_to = null;
+    } else {
+      const qaUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, requestData.qa_assigned_to))
+        .limit(1);
+      
+      if (qaUser.length === 0 || qaUser[0].role !== 'QA') {
+        return Response.json({ error: 'Invalid QA user' }, { status: 400 });
+      }
+      updateFields.qa_assigned_to = requestData.qa_assigned_to;
+    }
+  }
+  
+  // Handle Estimated Minutes (both full and partial)
+  if (requestData.estimated_minutes !== undefined) {
+    if (requestData.estimated_minutes === null) {
+      updateFields.estimated_minutes = null;
+    } else {
+      const minutes = parseInt(requestData.estimated_minutes, 10);
+      if (isNaN(minutes) || minutes < 0) {
+        return Response.json({ error: 'Invalid estimated minutes' }, { status: 400 });
+      }
+      updateFields.estimated_minutes = minutes;
+    }
+  }
+  
+  // Handle Files (both full and partial)
+  if (requestData.files !== undefined) {
+    if (Array.isArray(requestData.files)) {
+      updateFields.files = JSON.stringify(requestData.files);
+    } else {
+      return Response.json({ error: 'Invalid files format' }, { status: 400 });
+    }
+  }
+
+  // If no valid fields to update
+  if (Object.keys(updateFields).length === 0) {
+    return Response.json({ error: 'No valid fields to update' }, { status: 400 });
   }
 
   try {
-    // Handle files (optional)
-    let filesJson = null;
-    if (Array.isArray(files) && files.length > 0) {
-      filesJson = JSON.stringify(files);
-    }
-
     await db
       .update(tasks)
       .set({
-        title,
-        description: description || null,
-        priority: priority || 'MEDIUM',
-        assigned_to,
-        qa_assigned_to: qaUserId,
-        estimated_minutes: estimated_minutes ? parseInt(estimated_minutes, 10) : null,
-        files: filesJson,
+        ...updateFields,
         updated_at: new Date(),
       })
       .where(eq(tasks.id, id));

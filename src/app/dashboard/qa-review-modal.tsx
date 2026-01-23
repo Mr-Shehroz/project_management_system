@@ -46,6 +46,57 @@ export default function QAReviewModal({
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
 
+  // Handle paste event
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    if (!e.clipboardData || !e.clipboardData.items) return;
+
+    const items = Array.from(e.clipboardData.items);
+    const imageItems = items.filter(item => item.type.startsWith('image/'));
+
+    if (imageItems.length === 0) return;
+
+    e.preventDefault(); // Prevent default paste behavior
+
+    setUploadingImages(true);
+    try {
+      const newFeedbackItems: FeedbackItem[] = [];
+
+      for (const item of imageItems) {
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          newFeedbackItems.push({
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            image: {
+              url: data.url,
+              public_id: data.public_id,
+              original_name: data.original_name,
+              format: data.format,
+              bytes: data.bytes
+            },
+            note: ''
+          });
+        }
+      }
+
+      setFeedbackItems(prev => [...prev, ...newFeedbackItems]);
+    } catch (err) {
+      alert('Failed to upload pasted images');
+    } finally {
+      setUploadingImages(false);
+    }
+  };
+
   // Fetch QA users if user has permission to assign QA
   useEffect(() => {
     const fetchQAs = async () => {
@@ -243,7 +294,7 @@ export default function QAReviewModal({
         )}
 
         {canReviewQA && (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" onPaste={handlePaste}>
             <div>
               <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Status</label>
               <div className="flex space-x-4">

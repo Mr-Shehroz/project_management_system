@@ -46,12 +46,13 @@ type Notification = {
 };
 
 const initialColumns: Record<string, Column> = {
-  PENDING: { id: 'PENDING', title: 'Pending', taskIds: [] },
   IN_PROGRESS: { id: 'IN_PROGRESS', title: 'In Progress', taskIds: [] },
   WAITING_FOR_QA: { id: 'WAITING_FOR_QA', title: 'Waiting for QA', taskIds: [] },
   APPROVED: { id: 'APPROVED', title: 'Approved', taskIds: [] },
   REWORK: { id: 'REWORK', title: 'Rework', taskIds: [] },
 };
+
+
 
 export default function KanbanBoard() {
   const { data: session, status } = useSession();
@@ -70,6 +71,15 @@ export default function KanbanBoard() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
 
+  // Add project details state
+  const [projectDetails, setProjectDetails] = useState<{
+    name: string;
+    description: string | null;
+    client_name: string | null;
+    website_url: string | null;
+    fiverr_order_id: string | null;
+  } | null>(null);
+
   // Track shown notifications to avoid duplicates
   const shownNotifications = useRef<Set<string>>(new Set());
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -79,6 +89,27 @@ export default function KanbanBoard() {
     audioRef.current = new Audio('/notification.mp3');
     audioRef.current.volume = 0.7;
   }, []);
+
+  // Fetch project details when projectId changes
+  useEffect(() => {
+    if (!projectId) return;
+
+    const fetchProjectDetails = async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setProjectDetails(data.project || null);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    fetchProjectDetails();
+  }, [projectId]);
+
+
 
   useEffect(() => {
     const handleEditTask = (e: CustomEvent) => {
@@ -268,7 +299,7 @@ export default function KanbanBoard() {
     }
   }, [session]);
 
-  // Fetch tasks
+  // In fetchTasks function:
   const fetchTasks = useCallback(async () => {
     try {
       let url = '/api/tasks';
@@ -282,7 +313,6 @@ export default function KanbanBoard() {
 
       const tasksMap: TasksMap = {};
       const cols: Record<string, Column> = {
-        PENDING: { ...initialColumns.PENDING, taskIds: [] },
         IN_PROGRESS: { ...initialColumns.IN_PROGRESS, taskIds: [] },
         WAITING_FOR_QA: { ...initialColumns.WAITING_FOR_QA, taskIds: [] },
         APPROVED: { ...initialColumns.APPROVED, taskIds: [] },
@@ -428,11 +458,7 @@ export default function KanbanBoard() {
     }
   };
 
-  // Get status transition message
   const getStatusTransitionMessage = (oldStatus: string, newStatus: string, taskTitle: string) => {
-    if (oldStatus === 'PENDING' && newStatus === 'IN_PROGRESS') {
-      return `Started working on "${taskTitle}"`;
-    }
     if (oldStatus === 'IN_PROGRESS' && newStatus === 'WAITING_FOR_QA') {
       return `Submitted "${taskTitle}" for QA review`;
     }
@@ -480,13 +506,6 @@ export default function KanbanBoard() {
       return;
     }
 
-    // Validate permissions based on status change
-    if (oldStatus === 'PENDING' && task.assigned_to !== session.user.id) {
-      alert('Only the assigned member can start this task');
-      fetchTasks();
-      return;
-    }
-
     if (oldStatus === 'WAITING_FOR_QA' && session.user.role !== 'QA') {
       alert('Only QA can review this task');
       fetchTasks();
@@ -506,7 +525,7 @@ export default function KanbanBoard() {
         const notifyRes = await fetch('/api/notifications/qa-request', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             task_id: draggableId,
             project_id: task.project_id
           }),
@@ -530,7 +549,7 @@ export default function KanbanBoard() {
       } else {
         // Success - refresh tasks
         fetchTasks();
-        
+
         // Show success message
         const message = getStatusTransitionMessage(oldStatus, newStatus, task.title);
         console.log(message);
@@ -628,7 +647,70 @@ export default function KanbanBoard() {
       )}
 
       <DragDropContext onDragEnd={onDragEnd}>
-        <div className="flex overflow-x-auto pb-4 -mx-2 px-2">
+        <div className="flex items-start overflow-x-auto pb-4 -mx-2 px-2">
+          {/* Project Details Panel */}
+          <div className="min-w-[280px] sm:min-w-[300px] bg-gray-100 dark:bg-gray-800 rounded-lg p-4 mr-4">
+            <h2 className="font-bold mb-4 text-gray-800 dark:text-white">Project Details</h2>
+            {projectDetails ? (
+              <div className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Name</h3>
+                  <p className="mt-1 text-gray-800 dark:text-gray-200">{projectDetails.name}</p>
+                </div>
+                {projectDetails.description && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Description</h3>
+                    <p className="mt-1 text-gray-800 dark:text-gray-200">{projectDetails.description}</p>
+                  </div>
+                )}
+                {projectDetails.client_name && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Client</h3>
+                    <p className="mt-1 text-gray-800 dark:text-gray-200">{projectDetails.client_name}</p>
+                  </div>
+                )}
+                {projectDetails.website_url && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Website</h3>
+                    <a
+                      href={projectDetails.website_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      {projectDetails.website_url}
+                    </a>
+                  </div>
+                )}
+                {projectDetails.fiverr_order_id && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Fiverr Order ID</h3>
+                    <p className="mt-1 text-gray-800 dark:text-gray-200">{projectDetails.fiverr_order_id}</p>
+                  </div>
+                )}
+
+                {/* All Tasks for This Project */}
+                <div className="mt-4">
+                  <h3 className="text-sm font-medium text-gray-800 dark:text-white">All Tasks ({Object.values(columns).reduce((acc, col) => acc + col.taskIds.length, 0)})</h3>
+                  <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
+                    {Object.values(columns).flatMap(col => col.taskIds.map(taskId => tasks[taskId])).map(task => (
+                      <div key={task.id} className="bg-white dark:bg-gray-700 p-3 rounded shadow-sm border border-gray-200 dark:border-gray-600 cursor-pointer hover:shadow-md transition-shadow">
+                        <h4 className="font-semibold text-gray-800 dark:text-white">{task.title}</h4>
+                        <div className="mt-1 flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                          <span>Priority: {task.priority}</span>
+                          <span>{task.assigned_to}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-gray-500 dark:text-gray-400">Loading project details...</p>
+            )}
+          </div>
+
+          {/* Kanban Columns */}
           {Object.values(columns).map((column) => (
             <Droppable key={column.id} droppableId={column.id}>
               {(provided) => (
@@ -652,9 +734,9 @@ export default function KanbanBoard() {
                               onClick={() => {
                                 // Open QA modal if task is waiting for QA and user is authorized
                                 if (task.status === 'WAITING_FOR_QA') {
-                                  if (session?.user?.role === 'ADMIN' || 
-                                      session?.user?.role === 'PROJECT_MANAGER' || 
-                                      session?.user?.role === 'TEAM_LEADER') {
+                                  if (session?.user?.role === 'ADMIN' ||
+                                    session?.user?.role === 'PROJECT_MANAGER' ||
+                                    session?.user?.role === 'TEAM_LEADER') {
                                     setShowQAModal(task.id);
                                   } else if (session?.user?.role === 'QA') {
                                     setShowQAModal(task.id);
