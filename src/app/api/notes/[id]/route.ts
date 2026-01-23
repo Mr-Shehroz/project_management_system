@@ -8,14 +8,14 @@ import { eq } from 'drizzle-orm';
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { id } = params;
+  const { id } = await context.params;
   const { note, metadata } = await request.json();
 
   // Only QA can edit feedback notes
@@ -49,7 +49,6 @@ export async function PUT(
       .set({
         note: note !== undefined ? note : existingNote[0].note,
         metadata: metadata !== undefined ? metadata : existingNote[0].metadata,
-        // removed updated_at: not present in schema, fixes error
       })
       .where(eq(taskNotes.id, id));
 

@@ -37,13 +37,6 @@ export async function PUT(
     // Validate status transitions
     const oldStatus = currentTask[0].status;
     
-    // Only assigned member can move from PENDING to IN_PROGRESS
-    if (oldStatus === 'PENDING' && status === 'IN_PROGRESS') {
-      if (currentTask[0].assigned_to !== session.user.id) {
-        return Response.json({ error: 'Only the assigned member can start this task' }, { status: 403 });
-      }
-    }
-    
     // Only assigned member can move from IN_PROGRESS to WAITING_FOR_QA
     if (oldStatus === 'IN_PROGRESS' && status === 'WAITING_FOR_QA') {
       if (currentTask[0].assigned_to !== session.user.id) {
