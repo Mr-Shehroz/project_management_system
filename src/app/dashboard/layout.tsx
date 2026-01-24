@@ -5,7 +5,7 @@ import { authOptions } from '../api/auth/[...nextauth]/route';
 import NotificationsBell from './notifications-bell';
 import { db } from '@/db';
 import { projects, tasks, users } from '@/db/schema';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, and } from 'drizzle-orm'; // <-- Fix: add and
 import SidebarClient from './sidebar-client'; // ← new import
 import Link from 'next/link';
 
@@ -26,7 +26,6 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
-  // Fetch projects based on role (server-side)
   let userProjects: Project[] = [];
 
   if (session.user.role === 'ADMIN' || session.user.role === 'PROJECT_MANAGER') {
@@ -54,8 +53,11 @@ export default async function DashboardLayout({
           .where(inArray(projects.id, projectIds))) as Project[];
       }
     }
+  } else if (session.user.role === 'QA') {
+    // ✅ QA: don't pass projects here - let sidebar fetch them
+    userProjects = [];
   } else {
-    // Developer/Designer/QA: only projects with their tasks
+    // Developer/Designer: only projects with their tasks
     const myTasks = await db
       .select({ project_id: tasks.project_id })
       .from(tasks)

@@ -3,8 +3,9 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { db } from '@/db';
-import { tasks, users } from '@/db/schema';
+import { tasks, users, notifications } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
+import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(
   request: NextRequest,
@@ -69,6 +70,16 @@ export async function POST(
         updated_at: new Date(),
       })
       .where(eq(tasks.id, id));
+
+    // After assigning QA, create notification
+    await db.insert(notifications).values({
+      id: uuidv4(),
+      user_id: qa_id,
+      task_id: id,
+      type: 'QA_REVIEWED',
+      is_read: false,
+      created_at: new Date(),
+    });
 
     console.log('✅ QA assigned successfully:', { taskId: id, qaId: qa_id });
 

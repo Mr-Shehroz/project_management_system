@@ -50,11 +50,16 @@ export async function GET() {
           : [];
       }
     } else {
-      // Developer/Designer/QA: only projects with their tasks
+      // Developer/Designer/QA: projects with tasks assigned to them
+      // ✅ For QA: this now includes ALL tasks they've ever been assigned to
       const myTasks = await db
         .select({ project_id: tasks.project_id })
         .from(tasks)
-        .where(eq(tasks.assigned_to, session.user.id));
+        .where(
+          session.user.role === 'QA'
+            ? eq(tasks.qa_assigned_to, session.user.id)
+            : eq(tasks.assigned_to, session.user.id)
+        );
 
       const projectIds = [...new Set(myTasks.map(t => t.project_id))];
       allProjects = projectIds.length > 0

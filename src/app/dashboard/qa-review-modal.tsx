@@ -26,9 +26,13 @@ type FeedbackItem = {
 
 export default function QAReviewModal({
   taskId,
+  taskTitle,
+  taskDescription,
   onClose,
 }: {
   taskId: string;
+  taskTitle: string;
+  taskDescription: string | null;
   onClose: () => void;
 }) {
   const { data: session } = useSession();
@@ -250,7 +254,7 @@ export default function QAReviewModal({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
         <h2 className="text-lg font-bold mb-4 text-gray-800 dark:text-white">
-          {canAssignQA ? 'Assign QA Reviewer' : 'QA Review'}
+          QA Feedback for "{taskTitle}"
         </h2>
 
         {canAssignQA && (

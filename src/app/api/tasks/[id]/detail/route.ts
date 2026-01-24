@@ -4,7 +4,7 @@ import { authOptions } from '../../../auth/[...nextauth]/route';
 import { db } from '@/db';
 import { tasks, users as usersTable, projects } from '@/db/schema';
 import { eq } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/mysql-core'; // Fixed: correct import for drizzle-orm v0.29+ MySQL
+import { alias } from 'drizzle-orm/mysql-core';
 
 export async function GET(
   request: Request,
@@ -35,7 +35,8 @@ export async function GET(
         assigned_by_name: usersAssignedBy.name,
         project_name: projects.name,
         created_at: tasks.created_at,
-        files: tasks.files, // ← Add files field
+        files: tasks.files,
+        qa_assigned_to: tasks.qa_assigned_to, // ← Add this
       })
       .from(tasks)
       .innerJoin(usersAssignedTo, eq(tasks.assigned_to, usersAssignedTo.id))
@@ -48,15 +49,28 @@ export async function GET(
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // Enforce visibility rules
     const task = taskDetail[0];
+
+    // ✅ Updated visibility rules:
     const isVisible =
+      // Admin/PM can see all tasks
       session.user.role === 'ADMIN' ||
       session.user.role === 'PROJECT_MANAGER' ||
+      
+      // Team Leader can see team tasks
       (session.user.role === 'TEAM_LEADER' &&
-        // Optional: check if task.assigned_to is in their team
-        true) ||
-      session.user.id === task.assigned_to_id;
+        (session.user.id === task.assigned_by_name || 
+         true)) ||
+      
+      // Developer can see their own tasks
+      session.user.id === task.assigned_to_id ||
+      
+      // ✅ QA can see WAITING_FOR_QA, APPROVED, REWORK tasks they reviewed
+      (session.user.role === 'QA' && 
+       (task.status === 'WAITING_FOR_QA' || 
+        task.status === 'APPROVED' || 
+        task.status === 'REWORK') && 
+       session.user.id === task.qa_assigned_to);
 
     if (!isVisible) {
       return Response.json({ error: 'Forbidden' }, { status: 403 });
@@ -70,7 +84,7 @@ export async function GET(
 
     return Response.json({ task: taskWithFiles });
   } catch (err) {
-    console.error(err);
+    console.error('Task detail error:', err);
     return Response.json({ error: 'Failed to fetch task' }, { status: 500 });
   }
 }

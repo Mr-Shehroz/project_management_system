@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
         .select()
         .from(tasks)
         .where(projectId ? eq(tasks.project_id, projectId) : undefined);
+
     } else if (session.user.role === 'TEAM_LEADER') {
       // Team Leader: get team's tasks (or filtered by project)
       const teamMembers = await db
@@ -54,20 +55,19 @@ export async function GET(request: NextRequest) {
         );
 
       userTasks = await db.select().from(tasks).where(whereCondition);
+
     } else if (session.user.role === 'QA') {
-      // QA: only WAITING_FOR_QA tasks (or filtered by project)
+      // ✅ QA should see ALL tasks they've been assigned to (any status)
+      // This ensures they can see projects even after approving/rejecting tasks
       const whereCondition = projectId
         ? and(
           eq(tasks.project_id, projectId),
-          eq(tasks.qa_assigned_to, session.user.id),
-          eq(tasks.status, 'WAITING_FOR_QA')
+          eq(tasks.qa_assigned_to, session.user.id)
         )
-        : and(
-          eq(tasks.qa_assigned_to, session.user.id),
-          eq(tasks.status, 'WAITING_FOR_QA')
-        );
+        : eq(tasks.qa_assigned_to, session.user.id);
 
       userTasks = await db.select().from(tasks).where(whereCondition);
+
     } else {
       // Developer/Designer: only their tasks (or filtered by project)
       const whereCondition = projectId
@@ -129,22 +129,22 @@ export async function POST(req: NextRequest) {
     if (!project_id || !team_type || !title || !assigned_to) {
       console.error('Missing required fields:', { project_id, team_type, title, assigned_to });
       return Response.json(
-        { 
-          error: 'Missing required fields', 
+        {
+          error: 'Missing required fields',
           details: {
             project_id: !project_id ? 'required' : 'ok',
             team_type: !team_type ? 'required' : 'ok',
             title: !title ? 'required' : 'ok',
             assigned_to: !assigned_to ? 'required' : 'ok',
           }
-        }, 
+        },
         { status: 400 }
       );
     }
 
     // Normalize priority to uppercase
     const normalizedPriority = priority ? priority.toString().toUpperCase() : 'MEDIUM';
-    
+
     // Validate priority value
     if (!['LOW', 'MEDIUM', 'HIGH'].includes(normalizedPriority)) {
       return Response.json(
@@ -208,13 +208,13 @@ export async function POST(req: NextRequest) {
     const filesToSave =
       Array.isArray(files) && files.length > 0
         ? files.map((f) => ({
-            url: f.url || '',
-            public_id: f.public_id || '',
-            resource_type: f.resource_type || 'raw',
-            original_name: f.original_name || '',
-            format: f.format || '',
-            bytes: f.bytes || 0,
-          }))
+          url: f.url || '',
+          public_id: f.public_id || '',
+          resource_type: f.resource_type || 'raw',
+          original_name: f.original_name || '',
+          format: f.format || '',
+          bytes: f.bytes || 0,
+        }))
         : [];
 
     const filesJson = filesToSave.length > 0 ? JSON.stringify(filesToSave) : null;
@@ -251,7 +251,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error('POST /api/tasks error:', err);
     return Response.json(
-      { 
+      {
         error: 'Failed to create task',
         details: err instanceof Error ? err.message : 'Unknown error'
       },

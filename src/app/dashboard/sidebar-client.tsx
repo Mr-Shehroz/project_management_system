@@ -19,6 +19,8 @@ export default function SidebarClient({
   userProjects: Project[];
 }) {
   const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
+  const [qaProjects, setQaProjects] = useState<Project[]>([]);
+  const [loadingQaProjects, setLoadingQaProjects] = useState(false);
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
@@ -32,6 +34,45 @@ export default function SidebarClient({
     params.set('project', projectId);
     router.push(`${pathname}?${params.toString()}`);
   };
+
+  useEffect(() => {
+    if (userRole === 'QA') {
+      setLoadingQaProjects(true);
+      const fetchQaProjects = async () => {
+        try {
+          // ✅ Get ALL tasks assigned to QA (regardless of status)
+          const tasksRes = await fetch('/api/tasks');
+          if (tasksRes.ok) {
+            const tasksData = await tasksRes.json();
+            const projectIds = [...new Set((tasksData.tasks || []).map((t: any) => t.project_id))];
+            
+            if (projectIds.length > 0) {
+              // Fetch project details
+              const projectsRes = await fetch('/api/projects');
+              if (projectsRes.ok) {
+                const projectsData = await projectsRes.json();
+                const filteredProjects = (projectsData.projects || [])
+                  .filter((p: any) => projectIds.includes(p.id))
+                  .map((p: any) => ({ id: p.id, name: p.name }));
+                setQaProjects(filteredProjects);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Failed to fetch QA projects:', err);
+          setQaProjects([]);
+        } finally {
+          setLoadingQaProjects(false);
+        }
+      };
+
+      fetchQaProjects();
+    }
+  }, [userRole]);
+
+
+  // Determine which projects to show
+  const projectsToShow = userRole === 'QA' ? qaProjects : userProjects;
 
   return (
     <>
@@ -63,8 +104,12 @@ export default function SidebarClient({
         <div className="mt-6">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Projects</h2>
           <ul className="space-y-1">
-            {userProjects.length > 0 ? (
-              userProjects.map((project) => (
+            {loadingQaProjects && userRole === 'QA' ? (
+              <li className="px-3 py-2 text-gray-500 dark:text-gray-400 text-sm">
+                Loading projects...
+              </li>
+            ) : projectsToShow.length > 0 ? (
+              projectsToShow.map((project) => (
                 <li key={project.id}>
                   <button
                     onClick={() => handleProjectClick(project.id)}

@@ -21,13 +21,13 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { task_id, note, note_type = 'COMMENT' } = body;
+  const { task_id, note, note_type = 'COMMENT', metadata = null } = body;
 
   if (!task_id || typeof task_id !== 'string' || !note || typeof note !== 'string') {
     return Response.json({ error: 'Task ID and note are required' }, { status: 400 });
   }
 
-  const validNoteTypes = ['COMMENT', 'APPROVAL', 'REJECTION'];
+  const validNoteTypes = ['COMMENT', 'APPROVAL', 'REJECTION', 'FEEDBACK_IMAGE'];
   if (!validNoteTypes.includes(note_type)) {
     return Response.json({ error: 'Invalid note type' }, { status: 400 });
   }
@@ -39,12 +39,13 @@ export async function POST(req: NextRequest) {
       user_id: session.user.id,
       note,
       note_type,
+      metadata, // ← Accept metadata from request
       created_at: new Date(),
     });
 
     return Response.json({ success: true }, { status: 201 });
   } catch (err) {
-    console.error(err);
+    console.error('POST /api/notes error:', err);
     return Response.json({ error: 'Failed to save note' }, { status: 500 });
   }
 }
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest) {
 
     return Response.json({ notes });
   } catch (err) {
-    console.error(err);
+    console.error('GET /api/notes error:', err);
     return Response.json({ error: 'Failed to fetch notes' }, { status: 500 });
   }
 }

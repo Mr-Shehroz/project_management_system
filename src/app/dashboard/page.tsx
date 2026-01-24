@@ -10,6 +10,7 @@ import QAReviewModal from './qa-review-modal';
 import TaskDetailSidebar from './task-detail-sidebar';
 import NotificationToast from './NotificationToast';
 import EditTaskModal from './edit-task-modal';
+import QAAssignModal from './qa-assign-modal';
 
 type Task = {
   id: string;
@@ -52,8 +53,6 @@ const initialColumns: Record<string, Column> = {
   REWORK: { id: 'REWORK', title: 'Rework', taskIds: [] },
 };
 
-
-
 export default function KanbanBoard() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -66,7 +65,6 @@ export default function KanbanBoard() {
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState<{ task: any } | null>(null);
-  const [showQAModal, setShowQAModal] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
@@ -80,6 +78,13 @@ export default function KanbanBoard() {
     fiverr_order_id: string | null;
   } | null>(null);
 
+  const [showQAModal, setShowQAModal] = useState<{
+    taskId: string;
+    taskTitle: string;
+    taskDescription: string | null;
+  } | null>(null);
+
+  const [showQAAssignModal, setShowQAAssignModal] = useState<string | null>(null);
   const [projectDetailsLoading, setProjectDetailsLoading] = useState(false);
 
   // Track shown notifications to avoid duplicates
@@ -92,20 +97,39 @@ export default function KanbanBoard() {
     audioRef.current.volume = 0.7;
   }, []);
 
-  // Fetch project details when projectId changes
+  // Handle QA feedback from task detail sidebar
   useEffect(() => {
-    if (!projectId) {
-      setProjectDetails(null);
-      setProjectDetailsLoading(false);
-      return;
-    }
+    const handleQaFeedback = (e: CustomEvent) => {
+      setShowQAModal({
+        taskId: e.detail.taskId,
+        taskTitle: e.detail.taskTitle,
+        taskDescription: e.detail.taskDescription || null
+      });
+    };
 
-    
+    window.addEventListener('qa-feedback', handleQaFeedback as EventListener);
+    return () => window.removeEventListener('qa-feedback', handleQaFeedback as EventListener);
+  }, []);
 
-    setProjectDetailsLoading(true);
+  // Fetch project details when projectId changes OR when task is selected
+  useEffect(() => {
     const fetchProjectDetails = async () => {
+      let targetProjectId = projectId;
+
+      // If no project ID in URL but a task is selected, get project from task
+      if (!targetProjectId && selectedTaskId && tasks[selectedTaskId]) {
+        targetProjectId = tasks[selectedTaskId].project_id;
+      }
+
+      if (!targetProjectId) {
+        setProjectDetails(null);
+        setProjectDetailsLoading(false);
+        return;
+      }
+
+      setProjectDetailsLoading(true);
       try {
-        const res = await fetch(`/api/projects/${projectId}`);
+        const res = await fetch(`/api/projects/${targetProjectId}`);
         if (res.ok) {
           const data = await res.json();
           setProjectDetails(data.project || null);
@@ -121,9 +145,7 @@ export default function KanbanBoard() {
     };
 
     fetchProjectDetails();
-  }, [projectId]);
-
-
+  }, [projectId, selectedTaskId, tasks]);
 
   useEffect(() => {
     const handleEditTask = (e: CustomEvent) => {
@@ -278,7 +300,7 @@ export default function KanbanBoard() {
     removeNotification(notification.id);
   };
 
-  // Fetch projects
+  // Fetch projects for non-QA users
   const fetchProjects = useCallback(async () => {
     try {
       const res = await fetch('/api/projects');
@@ -309,6 +331,33 @@ export default function KanbanBoard() {
         }
       } catch (err) {
         console.error(err);
+      }
+    }
+  }, [session]);
+
+  const fetchQaProjects = useCallback(async () => {
+    if (session?.user?.role === 'QA') {
+      try {
+        // ✅ Get ALL tasks assigned to QA (regardless of status)
+        const res = await fetch('/api/tasks');
+        if (res.ok) {
+          const data = await res.json();
+          const projectIds = [...new Set((data.tasks || []).map((t: any) => t.project_id))];
+
+          if (projectIds.length > 0) {
+            // Fetch all projects and filter to those with QA's tasks
+            const projectsRes = await fetch('/api/projects');
+            if (projectsRes.ok) {
+              const projectsData = await projectsRes.json();
+              setProjects((projectsData.projects || []).filter((p: any) => projectIds.includes(p.id)));
+            }
+          } else {
+            setProjects([]);
+          }
+        }
+      } catch (err) {
+        console.error('[QA] Failed to fetch QA projects:', err);
+        setProjects([]);
       }
     }
   }, [session]);
@@ -421,15 +470,24 @@ export default function KanbanBoard() {
     };
   }, [session, showDesktopNotification, showInAppNotification]);
 
+  // UPDATED: Fetch projects logic for all users
   useEffect(() => {
     if (status === 'loading') return;
+
     if (!session) {
       router.push('/login');
       return;
     }
-    fetchProjects();
-    fetchTeamMembers();
-  }, [session, status, router, fetchProjects, fetchTeamMembers]);
+
+    // For QA users, fetch projects with their tasks
+    if (session.user.role === 'QA') {
+      fetchQaProjects();
+    } else {
+      // For other users, fetch all projects they can see
+      fetchProjects();
+      fetchTeamMembers();
+    }
+  }, [session, status, router, fetchProjects, fetchTeamMembers, fetchQaProjects]);
 
   useEffect(() => {
     if (session) {
@@ -748,16 +806,27 @@ export default function KanbanBoard() {
                               {...provided.draggableProps}
                               {...provided.dragHandleProps}
                               onClick={() => {
-                                // Open QA modal if task is waiting for QA and user is authorized
-                                if (task.status === 'WAITING_FOR_QA') {
-                                  if (session?.user?.role === 'ADMIN' ||
-                                    session?.user?.role === 'PROJECT_MANAGER' ||
-                                    session?.user?.role === 'TEAM_LEADER') {
-                                    setShowQAModal(task.id);
-                                  } else if (session?.user?.role === 'QA') {
-                                    setShowQAModal(task.id);
+                                // Get task from state
+                                const task = tasks[taskId];
+                                if (!task) return;
+
+                                // Check if user is Admin/PM/Team Leader
+                                if (
+                                  session?.user?.role === 'ADMIN' ||
+                                  session?.user?.role === 'PROJECT_MANAGER' ||
+                                  session?.user?.role === 'TEAM_LEADER'
+                                ) {
+                                  // Only show QA Assign Modal for WAITING_FOR_QA tasks
+                                  if (task.status === 'WAITING_FOR_QA') {
+                                    setShowQAAssignModal(task.id);
+                                  } else {
+                                    setSelectedTaskId(task.id);
                                   }
+                                } else if (session?.user?.role === 'QA') {
+                                  // QA: always open task detail sidebar
+                                  setSelectedTaskId(task.id);
                                 } else {
+                                  // Developer/Designer: always open task detail sidebar
                                   setSelectedTaskId(task.id);
                                 }
                               }}
@@ -795,13 +864,6 @@ export default function KanbanBoard() {
         />
       )}
 
-      {showQAModal && (
-        <QAReviewModal
-          taskId={showQAModal}
-          onClose={() => setShowQAModal(null)}
-        />
-      )}
-
       {selectedTaskId && (
         <TaskDetailSidebar
           taskId={selectedTaskId}
@@ -815,6 +877,24 @@ export default function KanbanBoard() {
           teamMembers={teamMembers}
           onClose={() => setShowEditModal(null)}
           onUpdated={fetchTasks}
+        />
+      )}
+
+      {/* QA Assign Modal */}
+      {showQAAssignModal && (
+        <QAAssignModal
+          taskId={showQAAssignModal}
+          onClose={() => setShowQAAssignModal(null)}
+        />
+      )}
+
+      {/* QA Review Modal */}
+      {showQAModal && (
+        <QAReviewModal
+          taskId={showQAModal.taskId}
+          taskTitle={showQAModal.taskTitle}
+          taskDescription={showQAModal.taskDescription}
+          onClose={() => setShowQAModal(null)}
         />
       )}
 
