@@ -202,6 +202,13 @@ export default function ProjectDashboard() {
     return <div className="p-6">Project not found</div>;
   }
 
+  // --- FIX: Add the required props (taskTitle, taskDescription) to QAReviewModal ---
+  // We fetch the task using showQAModal (which is the taskId).
+  const qaTask =
+    showQAModal && tasks[showQAModal]
+      ? tasks[showQAModal]
+      : null;
+
   return (
     <div className="p-4 sm:p-6">
       <div className="flex justify-between items-center mb-6">
@@ -279,9 +286,11 @@ export default function ProjectDashboard() {
         />
       )}
 
-      {showQAModal && (
+      {showQAModal && qaTask && (
         <QAReviewModal
-          taskId={showQAModal}
+          taskId={qaTask.id}
+          taskTitle={qaTask.title}
+          taskDescription={qaTask.description}
           onClose={() => setShowQAModal(null)}
         />
       )}
