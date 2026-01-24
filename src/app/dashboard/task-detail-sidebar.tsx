@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 
+// Add missing and proper typings for TaskDetail (was missing several fields used in the Edit event)
 type TaskDetail = {
   id: string;
   title: string;
@@ -17,7 +18,7 @@ type TaskDetail = {
   qa_assigned_to?: string | null;
   estimated_minutes?: number | null;
   project_name: string;
-  project_id?: string;
+  project_id: string; // ← Make this required
   team_type?: string;
   created_at: string;
   files?: Array<{
@@ -30,6 +31,7 @@ type TaskDetail = {
   }>;
 };
 
+// Updated Note type to support metadata (for FEEDBACK_IMAGE)
 type Note = {
   id: string;
   user_id: string;
@@ -39,16 +41,12 @@ type Note = {
   metadata?: any;
 };
 
-type FeedbackItem = {
+// ProjectDetails type for enhanced project info
+type ProjectDetails = {
   id: string;
-  image?: {
-    url: string;
-    public_id: string;
-    original_name: string;
-    format: string;
-    bytes: number;
-  };
-  note: string;
+  name: string;
+  client_name?: string;
+  website_url?: string;
 };
 
 const getFileIcon = (filename: string) => {
@@ -96,6 +94,7 @@ export default function TaskDetailSidebar({
   const [noteLoading, setNoteLoading] = useState(false);
   const { data: session } = useSession();
 
+  // State for inline editing
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -103,24 +102,41 @@ export default function TaskDetailSidebar({
   const [editingFeedback, setEditingFeedback] = useState<{ note: Note; image?: any; comment: string } | null>(null);
   const [uploadingFeedbackImage, setUploadingFeedbackImage] = useState(false);
 
-  // QA Feedback State
-  const [showQAFeedback, setShowQAFeedback] = useState(false);
-  const [qaFeedbackItems, setQAFeedbackItems] = useState<FeedbackItem[]>([]);
-  const [qaOverallNote, setQAOverallNote] = useState('');
-  const [qaStatus, setQAStatus] = useState<'APPROVED' | 'REWORK'>('APPROVED');
-  const [uploadingQAImages, setUploadingQAImages] = useState(false);
-  const [submittingQAFeedback, setSubmittingQAFeedback] = useState(false);
+  // State for project details (for enhanced project info)
+  const [projectDetails, setProjectDetails] = useState<ProjectDetails | null>(null);
 
+  // In your useEffect for fetching task details:
   useEffect(() => {
     if (!taskId) return;
 
     const fetchTaskAndNotes = async () => {
       try {
+        // Fetch task details
         const taskRes = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/detail`);
         if (!taskRes.ok) throw new Error('Failed to fetch task');
         const taskData = await taskRes.json();
         setTask(taskData.task);
 
+        // ✅ ALWAYS fetch project details using task's project_id
+        if (taskData.task && taskData.task.project_id) {
+          try {
+            const projRes = await fetch(
+              `/api/projects/${encodeURIComponent(taskData.task.project_id)}`
+            );
+            if (projRes.ok) {
+              const projData = await projRes.json();
+              setProjectDetails(projData.project || null);
+            } else {
+              setProjectDetails(null);
+            }
+          } catch {
+            setProjectDetails(null);
+          }
+        } else {
+          setProjectDetails(null);
+        }
+
+        // Fetch all notes for this task (unified)
         const notesRes = await fetch(`/api/notes?task_id=${encodeURIComponent(taskId)}`);
         if (!notesRes.ok) throw new Error('Failed to fetch notes');
         const notesData = await notesRes.json();
@@ -128,6 +144,7 @@ export default function TaskDetailSidebar({
       } catch (err) {
         if (process.env.NODE_ENV !== 'production') console.error(err);
         setTask(null);
+        setProjectDetails(null);
         setNotes([]);
       } finally {
         setLoading(false);
@@ -339,166 +356,6 @@ export default function TaskDetailSidebar({
     }
   };
 
-  // QA Feedback Functions
-  const handleQAImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-
-    setUploadingQAImages(true);
-    try {
-      const newFeedbackItems: FeedbackItem[] = [];
-
-      for (const file of Array.from(e.target.files)) {
-        const formData = new FormData();
-        formData.append('file', file);
-
-        const res = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          newFeedbackItems.push({
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-            image: {
-              url: data.url,
-              public_id: data.public_id,
-              original_name: data.original_name,
-              format: data.format,
-              bytes: data.bytes
-            },
-            note: ''
-          });
-        }
-      }
-
-      setQAFeedbackItems(prev => [...prev, ...newFeedbackItems]);
-    } catch (err) {
-      alert('Failed to upload images');
-    } finally {
-      setUploadingQAImages(false);
-    }
-  };
-
-  const handleQAPaste = async (e: React.ClipboardEvent) => {
-    if (!e.clipboardData || !e.clipboardData.items) return;
-
-    const items = Array.from(e.clipboardData.items);
-    const imageItems = items.filter(item => item.type.startsWith('image/'));
-
-    if (imageItems.length === 0) return;
-
-    e.preventDefault();
-
-    setUploadingQAImages(true);
-    try {
-      const newFeedbackItems: FeedbackItem[] = [];
-
-      for (const item of imageItems) {
-        const file = item.getAsFile();
-        if (!file) continue;
-
-        const formData = new FormData();
-        formData.append('file', file);
-
-        const res = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          newFeedbackItems.push({
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-            image: {
-              url: data.url,
-              public_id: data.public_id,
-              original_name: data.original_name,
-              format: data.format,
-              bytes: data.bytes
-            },
-            note: ''
-          });
-        }
-      }
-
-      setQAFeedbackItems(prev => [...prev, ...newFeedbackItems]);
-    } catch (err) {
-      alert('Failed to upload pasted images');
-    } finally {
-      setUploadingQAImages(false);
-    }
-  };
-
-  const updateQAFeedbackNote = (id: string, note: string) => {
-    setQAFeedbackItems(prev =>
-      prev.map(item =>
-        item.id === id ? { ...item, note } : item
-      )
-    );
-  };
-
-  const removeQAFeedbackItem = (id: string) => {
-    setQAFeedbackItems(prev => prev.filter(item => item.id !== id));
-  };
-
-  const handleSubmitQAFeedback = async () => {
-    setSubmittingQAFeedback(true);
-
-    try {
-      const feedback = qaFeedbackItems.map(item => ({
-        image: item.image ? {
-          url: item.image.url,
-          public_id: item.image.public_id,
-          original_name: item.image.original_name,
-          format: item.image.format,
-          bytes: item.image.bytes
-        } : undefined,
-        note: item.note
-      }));
-
-      const res = await fetch('/api/notes/qa', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          task_id: taskId, 
-          note: qaOverallNote, 
-          status: qaStatus, 
-          feedback 
-        }),
-      });
-
-      if (res.ok) {
-        const notesRes = await fetch(`/api/notes?task_id=${encodeURIComponent(taskId)}`);
-        if (notesRes.ok) {
-          const notesData = await notesRes.json();
-          setNotes(Array.isArray(notesData.notes) ? notesData.notes : []);
-        }
-        
-        setShowQAFeedback(false);
-        setQAFeedbackItems([]);
-        setQAOverallNote('');
-        setQAStatus('APPROVED');
-        
-        const taskRes = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/detail`);
-        if (taskRes.ok) {
-          const taskData = await taskRes.json();
-          setTask(taskData.task);
-        }
-        
-        alert('QA feedback submitted successfully!');
-        window.dispatchEvent(new CustomEvent('refresh-tasks'));
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to submit QA feedback');
-      }
-    } catch (err) {
-      alert('Network error');
-    } finally {
-      setSubmittingQAFeedback(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="fixed inset-0 z-50 flex justify-end">
@@ -519,14 +376,6 @@ export default function TaskDetailSidebar({
     );
   }
 
-  const isEditable =
-    session?.user?.role === 'ADMIN' ||
-    session?.user?.role === 'PROJECT_MANAGER' ||
-    session?.user?.role === 'TEAM_LEADER';
-
-  const isQAUser = session?.user?.role === 'QA';
-  const canProvideQAFeedback = isQAUser && task.status === 'WAITING_FOR_QA';
-
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div
@@ -545,144 +394,40 @@ export default function TaskDetailSidebar({
         >
           &times;
         </button>
-        <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">{task.title}</h2>
 
-        {/* QA Feedback Button */}
-        {canProvideQAFeedback && !showQAFeedback && (
-          <button
-            onClick={() => setShowQAFeedback(true)}
-            className="w-full mb-4 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center gap-2"
-          >
-            <span>📝</span>
-            <span>Provide QA Feedback</span>
-          </button>
-        )}
-
-        {/* QA Feedback Form */}
-        {canProvideQAFeedback && showQAFeedback && (
-          <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg" onPaste={handleQAPaste}>
-            <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-3">QA Feedback</h3>
-            
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Status</label>
-                <div className="flex space-x-4">
-                  <label className="inline-flex items-center cursor-pointer">
-                    <input
-                      type="radio"
-                      name="qa-status"
-                      checked={qaStatus === 'APPROVED'}
-                      onChange={() => setQAStatus('APPROVED')}
-                      className="text-blue-600 w-4 h-4"
-                    />
-                    <span className="ml-2 text-gray-700 dark:text-gray-300">✅ Approve</span>
-                  </label>
-                  <label className="inline-flex items-center cursor-pointer">
-                    <input
-                      type="radio"
-                      name="qa-status"
-                      checked={qaStatus === 'REWORK'}
-                      onChange={() => setQAStatus('REWORK')}
-                      className="text-red-600 w-4 h-4"
-                    />
-                    <span className="ml-2 text-gray-700 dark:text-gray-300">🔄 Rework</span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Overall Notes</label>
-                <textarea
-                  value={qaOverallNote}
-                  onChange={(e) => setQAOverallNote(e.target.value)}
-                  placeholder="Provide overall feedback..."
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                  rows={3}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                  📎 Add Reference Images (paste or upload)
-                </label>
-                <input
-                  type="file"
-                  multiple
-                  onChange={handleQAImageUpload}
-                  accept="image/*"
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                  disabled={uploadingQAImages}
-                />
-                {uploadingQAImages && <p className="text-sm text-blue-600 dark:text-blue-400 mt-1">📤 Uploading images...</p>}
-
-                {qaFeedbackItems.length > 0 && (
-                  <div className="mt-3 space-y-3">
-                    {qaFeedbackItems.map((item, index) => (
-                      <div key={item.id} className="border border-gray-200 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700">
-                        {item.image && (
-                          <div className="mb-2">
-                            <img
-                              src={item.image.url}
-                              alt={`Feedback ${index + 1}`}
-                              className="w-full h-40 object-cover rounded border border-gray-300 dark:border-gray-600"
-                            />
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              {item.image.original_name} • {(item.image.bytes / 1024).toFixed(1)} KB
-                            </p>
-                          </div>
-                        )}
-                        <textarea
-                          value={item.note}
-                          onChange={(e) => updateQAFeedbackNote(item.id, e.target.value)}
-                          placeholder={`💬 Add comment for image ${index + 1}...`}
-                          className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                          rows={2}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeQAFeedbackItem(item.id)}
-                          className="mt-2 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-sm font-medium"
-                        >
-                          🗑️ Remove
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex space-x-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowQAFeedback(false);
-                    setQAFeedbackItems([]);
-                    setQAOverallNote('');
-                    setQAStatus('APPROVED');
-                  }}
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+        {/* Project Info */}
+        <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded">
+          <h3 className="font-semibold text-gray-800 dark:text-white">{task.title}</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{task.description}</p>
+          {/* Add project info */}
+          {projectDetails && (
+            <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+              <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400">Project</h4>
+              <p className="text-sm text-gray-800 dark:text-gray-200">{projectDetails.name}</p>
+              {projectDetails.client_name && (
+                <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Client: {projectDetails.client_name}</p>
+              )}
+              {projectDetails.website_url && (
+                <a
+                  href={projectDetails.website_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSubmitQAFeedback}
-                  disabled={submittingQAFeedback}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-                >
-                  {submittingQAFeedback ? '⏳ Submitting...' : '✅ Submit Feedback'}
-                </button>
-              </div>
+                  {projectDetails.website_url}
+                </a>
+              )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
+        {/* END Project Info */}
 
         <div className="space-y-4">
           {/* Title - Inline Edit */}
           <div>
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Title</h3>
             {isEditingTitle ? (
-              <div className="flex items-center space-x-2 mt-1">
+              <div className="flex items-center space-x-2">
                 <input
                   type="text"
                   value={editTitle}
@@ -697,7 +442,7 @@ export default function TaskDetailSidebar({
                       setIsEditingTitle(false);
                     }
                   }}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border rounded px-3 py-2"
                   autoFocus
                 />
                 <button
@@ -706,7 +451,6 @@ export default function TaskDetailSidebar({
                     setIsEditingTitle(false);
                   }}
                   className="px-2 py-1 text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-                  type="button"
                 >
                   ✕
                 </button>
@@ -714,12 +458,16 @@ export default function TaskDetailSidebar({
             ) : (
               <div
                 onDoubleClick={() => {
-                  if (isEditable) {
+                  if (session?.user?.role === 'ADMIN' ||
+                    session?.user?.role === 'PROJECT_MANAGER' ||
+                    session?.user?.role === 'TEAM_LEADER') {
                     setIsEditingTitle(true);
                   }
                 }}
-                className={`mt-1 text-gray-800 dark:text-gray-200 ${isEditable
-                  ? 'hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-2 py-1 cursor-text'
+                className={`mt-1 text-gray-800 dark:text-gray-200 cursor-text ${(session?.user?.role === 'ADMIN' ||
+                  session?.user?.role === 'PROJECT_MANAGER' ||
+                  session?.user?.role === 'TEAM_LEADER')
+                  ? 'hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1'
                   : 'cursor-default'
                   }`}
               >
@@ -732,7 +480,7 @@ export default function TaskDetailSidebar({
           <div>
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Description</h3>
             {isEditingDescription ? (
-              <div className="flex items-start space-x-2 mt-1">
+              <div className="flex items-start space-x-2">
                 <textarea
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
@@ -746,7 +494,7 @@ export default function TaskDetailSidebar({
                       setIsEditingDescription(false);
                     }
                   }}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border rounded px-3 py-2"
                   rows={4}
                   autoFocus
                 />
@@ -756,7 +504,6 @@ export default function TaskDetailSidebar({
                     setIsEditingDescription(false);
                   }}
                   className="px-2 py-1 text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-                  type="button"
                 >
                   ✕
                 </button>
@@ -764,12 +511,16 @@ export default function TaskDetailSidebar({
             ) : (
               <div
                 onDoubleClick={() => {
-                  if (isEditable) {
+                  if (session?.user?.role === 'ADMIN' ||
+                    session?.user?.role === 'PROJECT_MANAGER' ||
+                    session?.user?.role === 'TEAM_LEADER') {
                     setIsEditingDescription(true);
                   }
                 }}
-                className={`mt-1 text-gray-800 dark:text-gray-200 ${isEditable
-                  ? 'hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1 cursor-text'
+                className={`mt-1 text-gray-800 dark:text-gray-200 cursor-text ${(session?.user?.role === 'ADMIN' ||
+                  session?.user?.role === 'PROJECT_MANAGER' ||
+                  session?.user?.role === 'TEAM_LEADER')
+                  ? 'hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1'
                   : 'cursor-default'
                   }`}
               >
@@ -780,10 +531,8 @@ export default function TaskDetailSidebar({
             )}
           </div>
 
-          <div>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Project</h3>
-            <p className="mt-1 text-gray-800 dark:text-gray-200">{task.project_name}</p>
-          </div>
+          {/* The old project info is now replaced by the above special box */}
+
           <div>
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Assigned To</h3>
             <p className="mt-1 text-gray-800 dark:text-gray-200">{task.assigned_to_name}</p>
@@ -818,16 +567,38 @@ export default function TaskDetailSidebar({
                   className="px-3 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700 text-sm"
                   type="button"
                 >
-                  ✏️ Edit Task
+                  Edit Task
                 </button>
               </div>
             )}
 
-          {/* Attachments */}
+          {/* QA Feedback Button */}
+          {session?.user?.role === 'QA' &&
+            task.status === 'WAITING_FOR_QA' &&
+            task.qa_assigned_to === session.user.id && (
+              <div className="mt-4">
+                <button
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('qa-feedback', {
+                      detail: {
+                        taskId: task.id,
+                        taskTitle: task.title,
+                        taskDescription: task.description
+                      }
+                    }));
+                  }}
+                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                  type="button"
+                >
+                  Give Feedback
+                </button>
+              </div>
+            )}
+
           {task.files && Array.isArray(task.files) && task.files.length > 0 && (
             <div className="mt-6">
               <h3 className="text-sm font-medium text-gray-800 dark:text-white mb-3">
-                📎 Attachments ({task.files.length})
+                Attachments ({task.files.length})
               </h3>
               <div className="space-y-2">
                 {task.files.map((file, index) => {
@@ -880,9 +651,8 @@ export default function TaskDetailSidebar({
                             <img
                               src={file.url}
                               alt={file.original_name || `Attachment ${index + 1}`}
-                              className="mt-2 w-full rounded border border-gray-300 dark:border-gray-600 cursor-pointer hover:opacity-90"
-                              style={{ maxHeight: '200px', objectFit: 'contain' }}
-                              onClick={() => window.open(file.url, '_blank')}
+                              className="mt-2 w-full rounded border border-gray-300 dark:border-gray-600"
+                              style={{ maxHeight: '200px' }}
                             />
                           )}
                           <a
@@ -971,7 +741,7 @@ export default function TaskDetailSidebar({
                               let imageUrl = meta.image.url;
                               if (!imageUrl.startsWith('http') && meta.image.public_id) {
                                 const format = meta.image.format || 'jpg';
-                                imageUrl = `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload/${meta.image.public_id}.${format}`;
+                                imageUrl = `https://res.cloudinary.com/  ${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload/${meta.image.public_id}.${format}`;
                               }
 
                               return (
