@@ -69,7 +69,7 @@ export default function KanbanBoard() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
 
-  // Add to your state declarations
+  // Project details state
   const [projectDetails, setProjectDetails] = useState<{
     name: string;
     description: string | null;
@@ -87,17 +87,25 @@ export default function KanbanBoard() {
   const [showQAAssignModal, setShowQAAssignModal] = useState<string | null>(null);
   const [projectDetailsLoading, setProjectDetailsLoading] = useState(false);
 
+  // ✅ Timer state with seconds
+  const [activeTimers, setActiveTimers] = useState<Record<string, {
+    start_time: Date;
+    is_rework: boolean;
+    elapsed_seconds: number;
+  }>>({});
+
+  // New state: timerStatus map for each task
+  const [timerStatus, setTimerStatus] = useState<Record<string, 'AVAILABLE' | 'RUNNING' | 'WARNING' | 'EXCEEDED' | 'USED' | 'APPROVED'>>({});
+
   // Track shown notifications to avoid duplicates
   const shownNotifications = useRef<Set<string>>(new Set());
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Initialize audio
   useEffect(() => {
     audioRef.current = new Audio('/notification.mp3');
     audioRef.current.volume = 0.7;
   }, []);
 
-  // Handle QA feedback from task detail sidebar
   useEffect(() => {
     const handleQaFeedback = (e: CustomEvent) => {
       setShowQAModal({
@@ -111,11 +119,10 @@ export default function KanbanBoard() {
     return () => window.removeEventListener('qa-feedback', handleQaFeedback as EventListener);
   }, []);
 
-  // Fetch project details when projectId changes OR when task is selected
+  // Only fetch project details
   useEffect(() => {
     const fetchProjectDetails = async () => {
       let targetProjectId = projectId;
-
       // If no project ID in URL but a task is selected, get project from task
       if (!targetProjectId && selectedTaskId && tasks[selectedTaskId]) {
         targetProjectId = tasks[selectedTaskId].project_id;
@@ -169,27 +176,19 @@ export default function KanbanBoard() {
       setNotificationPermission(Notification.permission);
 
       if (Notification.permission === 'default') {
-        console.log('Requesting notification permission...');
         const permission = await Notification.requestPermission();
         setNotificationPermission(permission);
 
         if (permission === 'granted') {
-          console.log('✅ Notification permission granted!');
-          // Show test notification
           showDesktopNotification(
             'Notifications Enabled!',
             'You will now receive task notifications even when this tab is inactive.',
             undefined,
-            false // Don't play sound for welcome message
+            false
           );
         } else if (permission === 'denied') {
-          console.error('❌ Notification permission denied');
           alert('Please enable notifications in your browser settings to receive task alerts.');
         }
-      } else if (Notification.permission === 'granted') {
-        console.log('✅ Notification permission already granted');
-      } else {
-        console.error('❌ Notification permission was denied');
       }
     };
 
@@ -199,7 +198,7 @@ export default function KanbanBoard() {
   // Play notification sound
   const playNotificationSound = useCallback(() => {
     if (audioRef.current) {
-      audioRef.current.currentTime = 0; // Reset to start
+      audioRef.current.currentTime = 0;
       audioRef.current.play().catch(e => {
         console.error('Failed to play notification sound:', e);
       });
@@ -213,66 +212,48 @@ export default function KanbanBoard() {
     taskId?: string,
     playSound: boolean = true
   ) => {
-    // Play sound first
     if (playSound) {
       playNotificationSound();
     }
 
-    // Check if notifications are supported and permitted
     if (!('Notification' in window)) {
-      console.error('Browser does not support notifications');
       return;
     }
 
     if (Notification.permission !== 'granted') {
-      console.warn('Notification permission not granted. Current status:', Notification.permission);
       return;
     }
 
     try {
-      // Create desktop notification
       const notification = new Notification(title, {
         body: message,
         icon: '/favicon.ico',
         badge: '/favicon.ico',
         tag: taskId || `notification-${Date.now()}`,
         requireInteraction: false,
-        silent: false, // Allow sound
+        silent: false,
         // @ts-expect-error 'vibrate' is a valid Notification option in some browsers but not in the TS type
         vibrate: [200, 100, 200],
       });
 
-      console.log('✅ Desktop notification created:', title);
-
-      // Handle notification click
       notification.onclick = function (event) {
         event.preventDefault();
-        console.log('Notification clicked');
-
-        // Focus the window
         window.focus();
-
-        // Navigate to task if taskId provided
         if (taskId) {
           window.location.href = `/dashboard?task=${taskId}`;
         }
-
-        // Close the notification
         notification.close();
       };
 
-      // Auto close after 10 seconds
       setTimeout(() => {
         notification.close();
       }, 10000);
 
-      // Handle notification errors
       notification.onerror = function (event) {
         console.error('Notification error:', event);
       };
-
     } catch (error) {
-      console.error('Failed to create notification:', error);
+      // ignore
     }
   }, [playNotificationSound]);
 
@@ -308,9 +289,7 @@ export default function KanbanBoard() {
         const data = await res.json();
         setProjects(data.projects || []);
       }
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { }
   }, []);
 
   // Fetch team members
@@ -329,23 +308,18 @@ export default function KanbanBoard() {
             role: u.role || '',
           })));
         }
-      } catch (err) {
-        console.error(err);
-      }
+      } catch (err) { }
     }
   }, [session]);
 
   const fetchQaProjects = useCallback(async () => {
     if (session?.user?.role === 'QA') {
       try {
-        // ✅ Get ALL tasks assigned to QA (regardless of status)
         const res = await fetch('/api/tasks');
         if (res.ok) {
           const data = await res.json();
           const projectIds = [...new Set((data.tasks || []).map((t: any) => t.project_id))];
-
           if (projectIds.length > 0) {
-            // Fetch all projects and filter to those with QA's tasks
             const projectsRes = await fetch('/api/projects');
             if (projectsRes.ok) {
               const projectsData = await projectsRes.json();
@@ -356,7 +330,6 @@ export default function KanbanBoard() {
           }
         }
       } catch (err) {
-        console.error('[QA] Failed to fetch QA projects:', err);
         setProjects([]);
       }
     }
@@ -391,10 +364,69 @@ export default function KanbanBoard() {
 
       setTasks(tasksMap);
       setColumns(cols);
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { }
   }, [projectId]);
+
+  // Fetch timer status and info on mount/when columns change
+  useEffect(() => {
+    const fetchActiveTimers = async () => {
+      const taskIds = Object.values(columns).flatMap(col => col.taskIds);
+
+      // Fetch /api/timers/[taskId]/current for ALL tasks (to get both status and timer)
+      const timerPromises = taskIds.map(async (taskId) => {
+        try {
+          const res = await fetch(`/api/timers/${taskId}/current`);
+          if (res.ok) {
+            const data = await res.json();
+            return { taskId, timer: data.timer, status: data.status };
+          }
+        } catch (err) {
+          console.error(`Failed to fetch timer for task ${taskId}:`, err);
+        }
+        return { taskId, timer: null, status: 'AVAILABLE' };
+      });
+
+      const results = await Promise.all(timerPromises);
+
+      const activeTimersMap: Record<string, any> = {};
+      const statusMap: Record<string, any> = {};
+
+      results.forEach(result => {
+        statusMap[result.taskId] = result.status || 'AVAILABLE';
+        if (result.timer) {
+          activeTimersMap[result.taskId] = {
+            start_time: new Date(result.timer.start_time),
+            is_rework: result.timer.is_rework,
+            elapsed_seconds: result.timer.elapsed_seconds
+          };
+        }
+      });
+
+      setTimerStatus(statusMap);
+      setActiveTimers(activeTimersMap);
+    };
+
+    fetchActiveTimers();
+
+    // Set up timer update interval - UPDATE EVERY SECOND
+    const timerInterval = setInterval(() => {
+      setActiveTimers(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(taskId => {
+          const timer = updated[taskId];
+          if (timer) {
+            const elapsed = Math.floor((Date.now() - timer.start_time.getTime()) / 1000);
+            updated[taskId] = { ...timer, elapsed_seconds: elapsed };
+          }
+        });
+        return updated;
+      });
+    }, 1000); // ✅ Update every second
+
+    return () => {
+      clearInterval(timerInterval);
+    };
+  }, [columns]);
 
   // Poll for notifications (THIS IS THE KEY PART)
   useEffect(() => {
@@ -406,35 +438,40 @@ export default function KanbanBoard() {
         if (res.ok) {
           const data = await res.json();
 
-          // Find unread notifications that haven't been shown yet
           const unread = data.notifications.filter((n: any) =>
             !n.is_read && !shownNotifications.current.has(n.id)
           );
 
-          console.log(`Found ${unread.length} new notifications`);
-
-          // Process each new notification
           for (const note of unread) {
-            // Add to shown set to prevent duplicates
             shownNotifications.current.add(note.id);
 
-            console.log('Showing notification:', note);
+            let title = '';
+            let message = '';
 
-            // ALWAYS show desktop notification (works even when tab is inactive)
-            showDesktopNotification(
-              '🔔 New Task Assigned',
-              `You have been assigned a task in "${note.project_name}"`,
-              note.task_id,
-              true // Play sound
-            );
+            // Notification logic updated per prompt:
+            switch (note.type) {
+              case 'TASK_ASSIGNED':
+                title = '🔔 New Task Assigned';
+                message = `You have been assigned a task in "${note.project_name}"`;
+                break;
+              case 'QA_REVIEWED':
+                title = '🔍 QA Review Requested';
+                message = `Task "${note.task_title}" needs QA review`;
+                break;
+              case 'TIME_EXCEEDED':
+                title = '⏰ Time Limit Exceeded!';
+                message = `Task "${note.task_title}" has exceeded its time limit`;
+                break;
+              default:
+                continue;
+            }
 
-            // Also show in-app toast if page is visible
+            // Show desktop notification
+            showDesktopNotification(title, message, note.task_id, true);
+
+            // Show in-app toast if page is visible
             if (document.visibilityState === 'visible') {
-              showInAppNotification(
-                'New Task Assigned',
-                `You have been assigned a task in "${note.project_name}"`,
-                note.task_id
-              );
+              showInAppNotification(title, message, note.task_id);
             }
 
             // Mark as read
@@ -454,18 +491,12 @@ export default function KanbanBoard() {
       }
     };
 
-    // Poll immediately on mount
-    console.log('Starting notification polling...');
     pollNotifications();
-
-    // Then poll every 10 seconds
     const interval = setInterval(() => {
-      console.log('Polling for notifications...');
       pollNotifications();
     }, 10000);
 
     return () => {
-      console.log('Stopping notification polling');
       clearInterval(interval);
     };
   }, [session, showDesktopNotification, showInAppNotification]);
@@ -473,17 +504,14 @@ export default function KanbanBoard() {
   // UPDATED: Fetch projects logic for all users
   useEffect(() => {
     if (status === 'loading') return;
-
     if (!session) {
       router.push('/login');
       return;
     }
 
-    // For QA users, fetch projects with their tasks
     if (session.user.role === 'QA') {
       fetchQaProjects();
     } else {
-      // For other users, fetch all projects they can see
       fetchProjects();
       fetchTeamMembers();
     }
@@ -495,7 +523,7 @@ export default function KanbanBoard() {
     }
   }, [session, projectId, fetchTasks]);
 
-  // Timer handlers
+  // Timer handlers: also update timerStatus state!
   const handleStartTimer = async (taskId: string) => {
     try {
       const res = await fetch('/api/timers', {
@@ -507,13 +535,25 @@ export default function KanbanBoard() {
         const data = await res.json();
         alert(data.error || 'Failed to start timer');
       } else {
-        fetchTasks();
+        setActiveTimers(prev => ({
+          ...prev,
+          [taskId]: {
+            start_time: new Date(),
+            is_rework: tasks[taskId]?.status === 'REWORK',
+            elapsed_seconds: 0
+          }
+        }));
+        setTimerStatus(prev => ({
+          ...prev,
+          [taskId]: 'RUNNING'
+        }));
       }
     } catch (err) {
       alert('Network error');
     }
   };
 
+  // In your handleStopTimer function:
   const handleStopTimer = async (taskId: string) => {
     try {
       const res = await fetch(`/api/timers/${taskId}/stop`, { method: 'POST' });
@@ -522,8 +562,20 @@ export default function KanbanBoard() {
         alert(data.error || 'Failed to stop timer');
       } else {
         const data = await res.json();
-        alert(`Timer stopped! Duration: ${data.duration} minutes`);
-        fetchTasks();
+        alert(`Timer stopped! Duration: ${data.duration} minutes${data.timeExceeded ? ' ⚠️ Time limit exceeded!' : ''}`);
+
+        // ✅ Clear timer from activeTimers
+        setActiveTimers(prev => {
+          const updated = { ...prev };
+          delete updated[taskId];
+          return updated;
+        });
+
+        // ✅ Update timer status to 'USED'
+        setTimerStatus(prev => ({
+          ...prev,
+          [taskId]: 'USED'
+        }));
       }
     } catch (err) {
       alert('Network error');
@@ -591,10 +643,8 @@ export default function KanbanBoard() {
     }
 
     try {
-      // Handle special case: moving to WAITING_FOR_QA
       if (newStatus === 'WAITING_FOR_QA' && oldStatus === 'IN_PROGRESS') {
-        // Send notification to Admin, PM, and Team Leader
-        const notifyRes = await fetch('/api/notifications/qa-request', {
+        await fetch('/api/notifications/qa-request', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -602,10 +652,6 @@ export default function KanbanBoard() {
             project_id: task.project_id
           }),
         });
-
-        if (!notifyRes.ok) {
-          console.error('Failed to send QA request notification');
-        }
       }
 
       const res = await fetch(`/api/tasks/${draggableId}`, {
@@ -619,15 +665,11 @@ export default function KanbanBoard() {
         alert(data.error || 'Failed to update task');
         fetchTasks();
       } else {
-        // Success - refresh tasks
         fetchTasks();
-
-        // Show success message
         const message = getStatusTransitionMessage(oldStatus, newStatus, task.title);
-        console.log(message);
+        // Optionally show a toast here
       }
     } catch (err) {
-      console.error('Update failed:', err);
       fetchTasks();
     }
   };
@@ -762,22 +804,6 @@ export default function KanbanBoard() {
                     <p className="mt-1 text-gray-800 dark:text-gray-200">{projectDetails.fiverr_order_id}</p>
                   </div>
                 )}
-
-                {/* All Tasks for This Project */}
-                <div className="mt-4">
-                  <h3 className="text-sm font-medium text-gray-800 dark:text-white">All Tasks ({Object.values(columns).reduce((acc, col) => acc + col.taskIds.length, 0)})</h3>
-                  <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
-                    {Object.values(columns).flatMap(col => col.taskIds.map(taskId => tasks[taskId])).map(task => (
-                      <div key={task.id} className="bg-white dark:bg-gray-700 p-3 rounded shadow-sm border border-gray-200 dark:border-gray-600 cursor-pointer hover:shadow-md transition-shadow">
-                        <h4 className="font-semibold text-gray-800 dark:text-white">{task.title}</h4>
-                        <div className="mt-1 flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                          <span>Priority: {task.priority}</span>
-                          <span>{task.assigned_to}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
             ) : (
               <p className="text-gray-500 dark:text-gray-400">No project selected</p>
@@ -806,27 +832,21 @@ export default function KanbanBoard() {
                               {...provided.draggableProps}
                               {...provided.dragHandleProps}
                               onClick={() => {
-                                // Get task from state
                                 const task = tasks[taskId];
                                 if (!task) return;
-
-                                // Check if user is Admin/PM/Team Leader
                                 if (
                                   session?.user?.role === 'ADMIN' ||
                                   session?.user?.role === 'PROJECT_MANAGER' ||
                                   session?.user?.role === 'TEAM_LEADER'
                                 ) {
-                                  // Only show QA Assign Modal for WAITING_FOR_QA tasks
                                   if (task.status === 'WAITING_FOR_QA') {
                                     setShowQAAssignModal(task.id);
                                   } else {
                                     setSelectedTaskId(task.id);
                                   }
                                 } else if (session?.user?.role === 'QA') {
-                                  // QA: always open task detail sidebar
                                   setSelectedTaskId(task.id);
                                 } else {
-                                  // Developer/Designer: always open task detail sidebar
                                   setSelectedTaskId(task.id);
                                 }
                               }}
@@ -838,10 +858,69 @@ export default function KanbanBoard() {
                                   {task.description}
                                 </p>
                               )}
+
+                              {/* TIMER STATUS INDICATORS WITH SECONDS */}
+                              {task.status !== 'APPROVED' && timerStatus[task.id] === 'RUNNING' && (
+                                <div className="mt-1 flex items-center text-xs text-green-600 dark:text-green-400">
+                                  <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                                  {Math.floor(activeTimers[task.id]?.elapsed_seconds / 60)}m {activeTimers[task.id]?.elapsed_seconds % 60}s
+                                  {activeTimers[task.id]?.is_rework && ' (Rework)'}
+                                </div>
+                              )}
+
+                              {task.status !== 'APPROVED' && timerStatus[task.id] === 'WARNING' && (
+                                <div className="mt-1 flex items-center text-xs text-yellow-600 dark:text-yellow-400">
+                                  <div className="w-2 h-2 bg-yellow-500 rounded-full mr-1"></div>
+                                  ⚠️ {Math.floor(activeTimers[task.id]?.elapsed_seconds / 60)}m {activeTimers[task.id]?.elapsed_seconds % 60}s
+                                </div>
+                              )}
+
+                              {task.status !== 'APPROVED' && timerStatus[task.id] === 'EXCEEDED' && (
+                                <div className="mt-1 flex items-center text-xs text-red-600 dark:text-red-400">
+                                  <div className="w-2 h-2 bg-red-500 rounded-full mr-1"></div>
+                                  ⏰ {Math.floor(activeTimers[task.id]?.elapsed_seconds / 60)}m {activeTimers[task.id]?.elapsed_seconds % 60}s
+                                </div>
+                              )}
+
                               <div className="mt-2 flex justify-between text-xs text-gray-500 dark:text-gray-400">
                                 <span>Priority: {task.priority}</span>
                                 <span>{task.assigned_to}</span>
                               </div>
+
+                              {/* Timer Controls - Only for assigned members */}
+                              {task.status !== 'APPROVED' && task.assigned_to === session?.user?.id && timerStatus[task.id] !== 'USED' && (
+                                <div className="mt-2 flex space-x-2">
+                                  {timerStatus[task.id] === 'AVAILABLE' ? (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleStartTimer(task.id);
+                                      }}
+                                      className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                    >
+                                      Start Timer
+                                    </button>
+                                  ) : (timerStatus[task.id] === 'RUNNING' || timerStatus[task.id] === 'WARNING' || timerStatus[task.id] === 'EXCEEDED') ? (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleStopTimer(task.id);
+                                      }}
+                                      className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                    >
+                                      Stop Timer
+                                    </button>
+                                  ) : null}
+                                </div>
+                              )}
+
+                              {/* Timer Used Message */}
+                              {task.status !== 'APPROVED' && timerStatus[task.id] === 'USED' && (
+                                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                  Timer used
+                                </div>
+                              )}
+
                             </div>
                           )}
                         </Draggable>
@@ -870,6 +949,7 @@ export default function KanbanBoard() {
           onClose={() => setSelectedTaskId(null)}
         />
       )}
+
       {showEditModal && (
         <EditTaskModal
           task={showEditModal.task}

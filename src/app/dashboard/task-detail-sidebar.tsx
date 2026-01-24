@@ -101,11 +101,18 @@ export default function TaskDetailSidebar({
   const [editDescription, setEditDescription] = useState('');
   const [editingFeedback, setEditingFeedback] = useState<{ note: Note; image?: any; comment: string } | null>(null);
   const [uploadingFeedbackImage, setUploadingFeedbackImage] = useState(false);
-
+  
   // State for project details (for enhanced project info)
   const [projectDetails, setProjectDetails] = useState<ProjectDetails | null>(null);
+  
+  // ✅ Timer state
+  const [timerInfo, setTimerInfo] = useState<{ 
+    status: 'AVAILABLE' | 'RUNNING' | 'WARNING' | 'EXCEEDED' | 'USED' | 'APPROVED';
+    elapsed_minutes?: number; 
+    is_rework?: boolean 
+  } | null>(null);
 
-  // In your useEffect for fetching task details:
+  // FETCH logic
   useEffect(() => {
     if (!taskId) return;
 
@@ -117,7 +124,7 @@ export default function TaskDetailSidebar({
         const taskData = await taskRes.json();
         setTask(taskData.task);
 
-        // ✅ ALWAYS fetch project details using task's project_id
+        // Always fetch project details using task's project_id
         if (taskData.task && taskData.task.project_id) {
           try {
             const projRes = await fetch(
@@ -152,6 +159,25 @@ export default function TaskDetailSidebar({
     };
 
     fetchTaskAndNotes();
+    
+    // Fetch timer info
+    const fetchTimerInfo = async () => {
+      try {
+        const res = await fetch(`/api/timers/${taskId}/current`);
+        if (res.ok) {
+          const data = await res.json();
+          setTimerInfo({
+            status: data.status,
+            elapsed_minutes: data.timer?.elapsed_minutes,
+            is_rework: data.timer?.is_rework
+          });
+        }
+      } catch (err) {
+        if (process.env.NODE_ENV !== 'production') console.error('Failed to fetch timer info:', err);
+      }
+    };
+
+    fetchTimerInfo();
   }, [taskId]);
 
   useEffect(() => {
@@ -178,7 +204,10 @@ export default function TaskDetailSidebar({
         setTask(prev => prev ? { ...prev, title: editTitle.trim() } : null);
         setIsEditingTitle(false);
       } else {
-        const data = await res.json();
+        let data = { error: undefined } as any;
+        try {
+          data = await res.json();
+        } catch { }
         alert(data.error || 'Failed to update title');
       }
     } catch (err) {
@@ -198,7 +227,10 @@ export default function TaskDetailSidebar({
         setTask(prev => prev ? { ...prev, description: editDescription } : null);
         setIsEditingDescription(false);
       } else {
-        const data = await res.json();
+        let data = { error: undefined } as any;
+        try {
+          data = await res.json();
+        } catch { }
         alert(data.error || 'Failed to update description');
       }
     } catch (err) {
@@ -305,7 +337,10 @@ export default function TaskDetailSidebar({
         }
         setEditingFeedback(null);
       } else {
-        const data = await res.json();
+        let data = { error: undefined } as any;
+        try {
+          data = await res.json();
+        } catch { }
         alert(data.error || 'Failed to update feedback');
       }
     } catch (err) {
@@ -407,6 +442,7 @@ export default function TaskDetailSidebar({
               {projectDetails.client_name && (
                 <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Client: {projectDetails.client_name}</p>
               )}
+              {/* Fix property name typo: Website_url --> website_url */}
               {projectDetails.website_url && (
                 <a
                   href={projectDetails.website_url}
@@ -451,6 +487,7 @@ export default function TaskDetailSidebar({
                     setIsEditingTitle(false);
                   }}
                   className="px-2 py-1 text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+                  type="button"
                 >
                   ✕
                 </button>
@@ -504,6 +541,7 @@ export default function TaskDetailSidebar({
                     setIsEditingDescription(false);
                   }}
                   className="px-2 py-1 text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+                  type="button"
                 >
                   ✕
                 </button>
@@ -575,7 +613,7 @@ export default function TaskDetailSidebar({
           {/* QA Feedback Button */}
           {session?.user?.role === 'QA' &&
             task.status === 'WAITING_FOR_QA' &&
-            task.qa_assigned_to === session.user.id && (
+            task.qa_assigned_to === session.user?.id && (
               <div className="mt-4">
                 <button
                   onClick={() => {
@@ -594,6 +632,93 @@ export default function TaskDetailSidebar({
                 </button>
               </div>
             )}
+
+          {/* ✅ Timer Controls */}
+          {task.status !== 'APPROVED' && task.assigned_to === session?.user?.id && timerInfo?.status !== 'USED' && (
+            <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-700 rounded">
+              <h3 className="text-sm font-medium text-gray-800 dark:text-white mb-2">Time Tracking</h3>
+              
+              {/* Timer Status */}
+              {timerInfo?.status === 'RUNNING' && (
+                <div className="flex items-center text-sm text-green-600 dark:text-green-400 mb-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                  Timer Running: {timerInfo.elapsed_minutes} minutes
+                  {timerInfo.is_rework && ' (Rework)'}
+                </div>
+              )}
+              {timerInfo?.status === 'WARNING' && (
+                <div className="flex items-center text-sm text-yellow-600 dark:text-yellow-400 mb-2">
+                  <div className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
+                  ⚠️ Approaching time limit: {timerInfo.elapsed_minutes} minutes
+                </div>
+              )}
+              {timerInfo?.status === 'EXCEEDED' && (
+                <div className="flex items-center text-sm text-red-600 dark:text-red-400 mb-2">
+                  <div className="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
+                  ⏰ Time limit exceeded: {timerInfo.elapsed_minutes} minutes
+                </div>
+              )}
+              
+              {/* Timer Controls */}
+              {timerInfo?.status === 'AVAILABLE' ? (
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/api/timers', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ task_id: task.id }),
+                      });
+                      if (res.ok) {
+                        // Refresh timer info
+                        const timerRes = await fetch(`/api/timers/${task.id}/current`);
+                        if (timerRes.ok) {
+                          const data = await timerRes.json();
+                          setTimerInfo({
+                            status: data.status,
+                            elapsed_minutes: data.timer?.elapsed_minutes,
+                            is_rework: data.timer?.is_rework
+                          });
+                        }
+                      }
+                    } catch (err) {
+                      alert('Network error');
+                    }
+                  }}
+                  className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                  type="button"
+                >
+                  Start Timer
+                </button>
+              ) : (timerInfo?.status === 'RUNNING' || timerInfo?.status === 'WARNING' || timerInfo?.status === 'EXCEEDED') ? (
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`/api/timers/${task.id}/stop`, { method: 'POST' });
+                      if (res.ok) {
+                        const data = await res.json();
+                        alert(`Timer stopped! Duration: ${data.duration} minutes${data.timeExceeded ? ' ⚠️ Time limit exceeded!' : ''}`);
+                        setTimerInfo({ status: 'USED' });
+                      }
+                    } catch (err) {
+                      alert('Network error');
+                    }
+                  }}
+                  className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                  type="button"
+                >
+                  Stop Timer
+                </button>
+              ) : null}
+              
+              {/* Timer Used Message */}
+              {timerInfo?.status === 'USED' as string && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Timer has already been used for this task
+                </p>
+              )}
+            </div>
+          )}
 
           {task.files && Array.isArray(task.files) && task.files.length > 0 && (
             <div className="mt-6">
@@ -739,9 +864,17 @@ export default function TaskDetailSidebar({
                             const meta = getFeedbackMeta(note);
                             if (meta && meta.image && meta.image.url) {
                               let imageUrl = meta.image.url;
-                              if (!imageUrl.startsWith('http') && meta.image.public_id) {
+                              // Allow Cloudinary url fallback if not present.
+                              // NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME may not be defined! so fallback to empty string
+                              if (
+                                !imageUrl.startsWith('http') &&
+                                meta.image.public_id &&
+                                typeof process !== 'undefined' &&
+                                typeof process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME === 'string' &&
+                                process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+                              ) {
                                 const format = meta.image.format || 'jpg';
-                                imageUrl = `https://res.cloudinary.com/  ${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload/${meta.image.public_id}.${format}`;
+                                imageUrl = `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload/${meta.image.public_id}.${format}`;
                               }
 
                               return (
@@ -785,6 +918,7 @@ export default function TaskDetailSidebar({
                                     <button
                                       onClick={() => handleEditFeedback(note)}
                                       className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                      type="button"
                                     >
                                       Edit Feedback
                                     </button>
@@ -800,6 +934,7 @@ export default function TaskDetailSidebar({
                                   <button
                                     onClick={() => handleEditFeedback(note)}
                                     className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                    type="button"
                                   >
                                     Edit Feedback
                                   </button>

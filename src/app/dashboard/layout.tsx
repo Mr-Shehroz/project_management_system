@@ -5,11 +5,10 @@ import { authOptions } from '../api/auth/[...nextauth]/route';
 import NotificationsBell from './notifications-bell';
 import { db } from '@/db';
 import { projects, tasks, users } from '@/db/schema';
-import { eq, inArray, and } from 'drizzle-orm'; // <-- Fix: add and
-import SidebarClient from './sidebar-client'; // ← new import
+import { eq, inArray } from 'drizzle-orm';
+import SidebarClient from './sidebar-client';
 import Link from 'next/link';
 
-// TypeScript: define Project type according to sidebar-client.tsx
 type Project = {
   id: string;
   name: string;
@@ -54,7 +53,7 @@ export default async function DashboardLayout({
       }
     }
   } else if (session.user.role === 'QA') {
-    // ✅ QA: don't pass projects here - let sidebar fetch them
+    // QA: don't pass projects here - let sidebar fetch them
     userProjects = [];
   } else {
     // Developer/Designer: only projects with their tasks

@@ -99,11 +99,12 @@ export const notifications = mysqlTable('notifications', {
     user_id: varchar('user_id', { length: 255 }).notNull(),
     task_id: varchar('task_id', { length: 255 }).notNull(),
     type: mysqlEnum('type', [
-        'TASK_ASSIGNED',
-        'TASK_COMPLETED',
-        'QA_REVIEWED',
-        'READY_FOR_ASSIGNMENT',
+      'TASK_ASSIGNED',
+      'TASK_COMPLETED',
+      'QA_REVIEWED',
+      'READY_FOR_ASSIGNMENT',
+      'TIME_EXCEEDED', // ✅ ADD THIS
     ]).notNull(),
     is_read: boolean('is_read').default(false).notNull(),
     created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+  });

@@ -6,7 +6,7 @@ import { db } from '@/db';
 import { notifications, tasks, projects } from '@/db/schema';
 import { eq, and, desc, count } from 'drizzle-orm';
 
-// GET unread notifications for current user
+// GET notifications for current user, with additional fields
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) {
@@ -14,19 +14,23 @@ export async function GET() {
   }
 
   try {
-    // Fetch notifications with project name
+    // Get notifications with task title and project name
     const notificationList = await db
       .select({
         id: notifications.id,
-        type: notifications.type,
-        created_at: notifications.created_at,
-        is_read: notifications.is_read,
+        user_id: notifications.user_id,
         task_id: notifications.task_id,
+        type: notifications.type,
+        is_read: notifications.is_read,
+        created_at: notifications.created_at,
+        task_title: tasks.title,
         project_name: projects.name,
+        // ✅ Remove duration_exceeded from here - calculate it in frontend or separate API
       })
       .from(notifications)
       .innerJoin(tasks, eq(notifications.task_id, tasks.id))
       .innerJoin(projects, eq(tasks.project_id, projects.id))
+      // ✅ Remove the problematic leftJoin
       .where(eq(notifications.user_id, session.user.id))
       .orderBy(desc(notifications.created_at))
       .limit(20);
@@ -41,7 +45,6 @@ export async function GET() {
           eq(notifications.is_read, false)
         )
       );
-
     const unreadCount = unreadCountRows?.[0]?.count ?? 0;
 
     return Response.json({

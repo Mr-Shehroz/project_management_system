@@ -5,54 +5,69 @@ import { authOptions } from '../auth/[...nextauth]/route';
 import { db } from '@/db';
 import { taskTimers, tasks } from '@/db/schema';
 import { v4 as uuidv4 } from 'uuid';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
-// POST /api/timers → start timer
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { task_id } = await req.json();
+  const { task_id } = await request.json();
 
-  // Verify user is assigned to this task
-  const task = await db
-    .select()
-    .from(tasks)
-    .where(and(eq(tasks.id, task_id), eq(tasks.assigned_to, session.user.id)))
-    .limit(1);
-
-  if (task.length === 0) {
-    return Response.json({ error: 'Not authorized for this task' }, { status: 403 });
+  if (!task_id) {
+    return Response.json({ error: 'Task ID is required' }, { status: 400 });
   }
 
   try {
-    // Stop any existing active timer for this task
-    await db
-      .update(taskTimers)
-      .set({ end_time: new Date() })
-      .where(and(eq(taskTimers.task_id, task_id), isNull(taskTimers.end_time)));
+    // Verify task exists and user is assigned to it
+    const task = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.id, task_id))
+      .limit(1);
 
-    // Start new timer
-    await db.insert(taskTimers).values({
-      id: uuidv4(),
-      task_id,
-      start_time: new Date(),
-      is_rework: false,
-    });
-
-    // Update task started_at if not set
-    if (!task[0].started_at) {
-      await db
-        .update(tasks)
-        .set({ started_at: new Date() })
-        .where(eq(tasks.id, task_id));
+    if (task.length === 0) {
+      return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    return Response.json({ success: true });
+    if (task[0].assigned_to !== session.user.id) {
+      return Response.json({ error: 'Only assigned member can start timer' }, { status: 403 });
+    }
+
+    // Check if task is APPROVED (no timer allowed)
+    if (task[0].status === 'APPROVED') {
+      return Response.json({ error: 'Cannot start timer on approved task' }, { status: 400 });
+    }
+
+    // Check if there's already a completed timer for this task
+    const existingTimer = await db
+      .select()
+      .from(taskTimers)
+      .where(eq(taskTimers.task_id, task_id))
+      .limit(1);
+
+    if (existingTimer.length > 0 && existingTimer[0].end_time) {
+      return Response.json({ error: 'Timer has already been used for this task' }, { status: 400 });
+    }
+
+    // Check if there's an active timer
+    if (existingTimer.length > 0 && !existingTimer[0].end_time) {
+      return Response.json({ error: 'Timer is already running for this task' }, { status: 400 });
+    }
+
+    // Create new timer
+    await db.insert(taskTimers).values({
+      id: uuidv4(),
+      task_id: task_id,
+      start_time: new Date(),
+      is_rework: task[0].status === 'REWORK',
+      created_at: new Date(),
+    });
+
+    return Response.json({ success: true }, { status: 201 });
   } catch (err) {
-    console.error(err);
+    console.error('Start timer error:', err);
     return Response.json({ error: 'Failed to start timer' }, { status: 500 });
   }
 }

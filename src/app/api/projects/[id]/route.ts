@@ -1,4 +1,5 @@
 // src/app/api/projects/[id]/route.ts
+import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { db } from '@/db';
@@ -14,7 +15,6 @@ export async function GET(
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Await params in Next.js 15+
   const { id } = await params;
 
   try {
@@ -42,7 +42,7 @@ export async function GET(
 }
 
 export async function PUT(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
@@ -55,15 +55,14 @@ export async function PUT(
     return Response.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
-  // Await params
   const { id } = await params;
 
   try {
     const body = await request.json();
-    const { name, client_name, website_url, status, files } = body;
+    const { name, client_name, website_url, fiverr_order_id, status, files } = body;
 
     // Validate required fields
-    if (!name) {
+    if (!name?.trim()) {
       return Response.json({ error: 'Project name is required' }, { status: 400 });
     }
 
@@ -79,6 +78,7 @@ export async function PUT(
         name: name.trim(),
         client_name: client_name?.trim() || null,
         website_url: website_url?.trim() || null,
+        fiverr_order_id: fiverr_order_id?.trim() || null,
         status: status || 'CLIENT',
         files: filesJson,
         updated_at: new Date(),
@@ -106,7 +106,6 @@ export async function DELETE(
     return Response.json({ error: 'Only admins can delete projects' }, { status: 403 });
   }
 
-  // Await params
   const { id } = await params;
 
   try {
