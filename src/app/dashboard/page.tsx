@@ -71,7 +71,7 @@ export default function KanbanBoard() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
 
-  // Add project details state
+  // Add to your state declarations
   const [projectDetails, setProjectDetails] = useState<{
     name: string;
     description: string | null;
@@ -79,6 +79,8 @@ export default function KanbanBoard() {
     website_url: string | null;
     fiverr_order_id: string | null;
   } | null>(null);
+
+  const [projectDetailsLoading, setProjectDetailsLoading] = useState(false);
 
   // Track shown notifications to avoid duplicates
   const shownNotifications = useRef<Set<string>>(new Set());
@@ -92,17 +94,29 @@ export default function KanbanBoard() {
 
   // Fetch project details when projectId changes
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId) {
+      setProjectDetails(null);
+      setProjectDetailsLoading(false);
+      return;
+    }
 
+    
+
+    setProjectDetailsLoading(true);
     const fetchProjectDetails = async () => {
       try {
         const res = await fetch(`/api/projects/${projectId}`);
         if (res.ok) {
           const data = await res.json();
           setProjectDetails(data.project || null);
+        } else {
+          setProjectDetails(null);
         }
       } catch (err) {
-        console.error(err);
+        console.error('Failed to fetch project details:', err);
+        setProjectDetails(null);
+      } finally {
+        setProjectDetailsLoading(false);
       }
     };
 
@@ -651,7 +665,9 @@ export default function KanbanBoard() {
           {/* Project Details Panel */}
           <div className="min-w-[280px] sm:min-w-[300px] bg-gray-100 dark:bg-gray-800 rounded-lg p-4 mr-4">
             <h2 className="font-bold mb-4 text-gray-800 dark:text-white">Project Details</h2>
-            {projectDetails ? (
+            {projectDetailsLoading ? (
+              <p className="text-gray-500 dark:text-gray-400">Loading project details...</p>
+            ) : projectDetails ? (
               <div className="space-y-3">
                 <div>
                   <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Name</h3>
@@ -706,7 +722,7 @@ export default function KanbanBoard() {
                 </div>
               </div>
             ) : (
-              <p className="text-gray-500 dark:text-gray-400">Loading project details...</p>
+              <p className="text-gray-500 dark:text-gray-400">No project selected</p>
             )}
           </div>
 
