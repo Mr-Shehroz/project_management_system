@@ -67,7 +67,7 @@ export async function POST(
       
       // Get users to notify (Admin, PM, Team Leader of same team)
       const notifyUsers = await db
-        .select({ id: users.id, role: users.role })
+        .select({ id: users.id, role: users.role, team_type: users.team_type })
         .from(users)
         .where(or(
           eq(users.role, 'ADMIN'),
@@ -78,17 +78,24 @@ export async function POST(
           )
         ));
 
-      // Create database notifications
-      const notificationPromises = notifyUsers.map(user =>
-        db.insert(notifications).values({
-          id: uuidv4(),
-          user_id: user.id,
-          task_id: taskId,
-          type: 'TIME_EXCEEDED',
-          is_read: false,
-          created_at: new Date(),
-        })
-      );
+      console.log(`⚠️ TIMER STOPPED: Time exceeded for task ${taskId}. Notifying ${notifyUsers.length} users.`);
+
+      // ✅ Create STOP-TIME notifications (separate from real-time notifications)
+      const notificationPromises = notifyUsers.map(async (user) => {
+        try {
+          await db.insert(notifications).values({
+            id: uuidv4(),
+            user_id: user.id,
+            task_id: taskId,
+            type: 'TIME_EXCEEDED', // This is the "timer stopped with exceeded time" notification
+            is_read: false,
+            created_at: new Date(),
+          });
+          console.log(`✅ STOP notification created for user ${user.id} (${user.role})`);
+        } catch (error) {
+          console.error(`❌ Failed to create STOP notification for user ${user.id}:`, error);
+        }
+      });
 
       await Promise.all(notificationPromises);
     }
@@ -96,8 +103,9 @@ export async function POST(
     return Response.json({ 
       success: true, 
       duration: durationMinutes,
-      duration_seconds: durationSeconds, // ✅ Return exact seconds
-      timeExceeded
+      duration_seconds: durationSeconds,
+      timeExceeded,
+      estimated_minutes: task[0].estimated_minutes
     }, { status: 200 });
   } catch (err) {
     console.error('Stop timer error:', err);

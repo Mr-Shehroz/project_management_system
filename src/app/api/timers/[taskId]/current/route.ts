@@ -3,8 +3,9 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../auth/[...nextauth]/route';
 import { db } from '@/db';
-import { taskTimers, tasks } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { taskTimers, tasks, notifications, users } from '@/db/schema';
+import { v4 as uuidv4 } from 'uuid';
+import { eq, and, or } from 'drizzle-orm';
 
 export async function GET(
     request: NextRequest,
@@ -74,12 +75,77 @@ export async function GET(
 
             // Determine status based on time limit
             let status = 'RUNNING';
+            let shouldNotify = false;
+            
             if (task[0].estimated_minutes) {
                 const estimatedSeconds = task[0].estimated_minutes * 60;
+                
                 if (elapsedSeconds >= estimatedSeconds) {
                     status = 'EXCEEDED';
+                    
+                    // ✅ CHECK IF WE NEED TO SEND NOTIFICATION (only once when crossing threshold)
+                    // Check if notification already sent for this timer
+                    const existingNotification = await db
+                        .select()
+                        .from(notifications)
+                        .where(
+                            and(
+                                eq(notifications.task_id, taskId),
+                                eq(notifications.type, 'TIME_EXCEEDED')
+                                // Only allow values for .type that match the enum values:
+                                // 'TASK_ASSIGNED' | 'QA_REVIEWED' | 'TIME_EXCEEDED' | 'TASK_COMPLETED' | 'READY_FOR_ASSIGNMENT'
+                            )
+                        )
+                        .limit(1);
+                    
+                    // Only notify if we haven't already notified for this timer session
+                    if (existingNotification.length === 0) {
+                        shouldNotify = true;
+                    }
                 } else if (elapsedSeconds >= estimatedSeconds * 0.8) {
                     status = 'WARNING';
+                }
+            }
+
+            // ✅ SEND REAL-TIME NOTIFICATIONS WHEN TIME EXCEEDS
+            if (shouldNotify && task[0].team_type) {
+                try {
+                    // Get users to notify (Admin, PM, Team Leader of same team)
+                    const notifyUsers = await db
+                        .select({ id: users.id, role: users.role, team_type: users.team_type })
+                        .from(users)
+                        .where(or(
+                            eq(users.role, 'ADMIN'),
+                            eq(users.role, 'PROJECT_MANAGER'),
+                            and(
+                                eq(users.role, 'TEAM_LEADER'),
+                                eq(users.team_type, task[0].team_type)
+                            )
+                        ));
+
+                    console.log(`⚠️ REAL-TIME: Time exceeded for task ${taskId}. Notifying ${notifyUsers.length} users.`);
+
+                    // Create database notifications for each user
+                    const notificationPromises = notifyUsers.map(async (user) => {
+                        try {
+                            // Only insert allowed enum value for notification type
+                            await db.insert(notifications).values({
+                                id: crypto.randomUUID(),
+                                user_id: user.id,
+                                task_id: taskId,
+                                type: 'TIME_EXCEEDED', // Use the correct enum value.
+                                is_read: false,
+                                created_at: new Date(),
+                            });
+                            console.log(`✅ REAL-TIME notification created for user ${user.id} (${user.role})`);
+                        } catch (error) {
+                            console.error(`❌ Failed to create REAL-TIME notification for user ${user.id}:`, error);
+                        }
+                    });
+
+                    await Promise.all(notificationPromises);
+                } catch (err) {
+                    console.error('Failed to send real-time notifications:', err);
                 }
             }
 

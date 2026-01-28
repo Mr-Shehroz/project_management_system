@@ -1,10 +1,19 @@
 // src/app/dashboard/task-detail-sidebar.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 
-// Add missing and proper typings for TaskDetail (was missing several fields used in the Edit event)
+// Corrected and enhanced types
+type TaskFile = {
+  url: string;
+  public_id: string;
+  resource_type: string;
+  original_name: string;
+  format: string;
+  bytes: number;
+};
+
 type TaskDetail = {
   id: string;
   title: string;
@@ -18,20 +27,12 @@ type TaskDetail = {
   qa_assigned_to?: string | null;
   estimated_minutes?: number | null;
   project_name: string;
-  project_id: string; // ← Make this required
+  project_id: string;
   team_type?: string;
   created_at: string;
-  files?: Array<{
-    url: string;
-    public_id: string;
-    resource_type: string;
-    original_name: string;
-    format: string;
-    bytes: number;
-  }>;
+  files?: TaskFile[];
 };
 
-// Updated Note type to support metadata (for FEEDBACK_IMAGE)
 type Note = {
   id: string;
   user_id: string;
@@ -41,7 +42,6 @@ type Note = {
   metadata?: any;
 };
 
-// ProjectDetails type for enhanced project info
 type ProjectDetails = {
   id: string;
   name: string;
@@ -49,7 +49,8 @@ type ProjectDetails = {
   website_url?: string;
 };
 
-const getFileIcon = (filename: string) => {
+// Utility functions
+function getFileIcon(filename: string) {
   if (typeof filename !== 'string') return '📎';
   const ext = filename.split('.').pop()?.toLowerCase() || '';
 
@@ -63,9 +64,9 @@ const getFileIcon = (filename: string) => {
   if (['txt'].includes(ext)) return '📃';
 
   return '📎';
-};
+}
 
-const getFileTypeLabel = (filename: string) => {
+function getFileTypeLabel(filename: string) {
   if (typeof filename !== 'string') return 'File';
   const ext = filename.split('.').pop()?.toLowerCase() || '';
 
@@ -78,8 +79,9 @@ const getFileTypeLabel = (filename: string) => {
   if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return 'Archive';
 
   return 'File';
-};
+}
 
+// Main component
 export default function TaskDetailSidebar({
   taskId,
   onClose,
@@ -92,29 +94,32 @@ export default function TaskDetailSidebar({
   const [newNote, setNewNote] = useState('');
   const [loading, setLoading] = useState(true);
   const [noteLoading, setNoteLoading] = useState(false);
+
   const { data: session } = useSession();
 
-  // State for inline editing
+  // Inline edit state
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editingFeedback, setEditingFeedback] = useState<{ note: Note; image?: any; comment: string } | null>(null);
   const [uploadingFeedbackImage, setUploadingFeedbackImage] = useState(false);
-  
-  // State for project details (for enhanced project info)
+
+  // Project details
   const [projectDetails, setProjectDetails] = useState<ProjectDetails | null>(null);
-  
-  // ✅ Timer state
-  const [timerInfo, setTimerInfo] = useState<{ 
+
+  // Timer state
+  const [timerInfo, setTimerInfo] = useState<{
     status: 'AVAILABLE' | 'RUNNING' | 'WARNING' | 'EXCEEDED' | 'USED' | 'APPROVED';
-    elapsed_minutes?: number; 
-    is_rework?: boolean 
+    elapsed_minutes?: number;
+    is_rework?: boolean;
   } | null>(null);
 
-  // FETCH logic
+  // ---- Fetch logic ----
   useEffect(() => {
     if (!taskId) return;
+
+    let ignore = false;
 
     const fetchTaskAndNotes = async () => {
       try {
@@ -122,16 +127,16 @@ export default function TaskDetailSidebar({
         const taskRes = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/detail`);
         if (!taskRes.ok) throw new Error('Failed to fetch task');
         const taskData = await taskRes.json();
+        if (ignore) return;
         setTask(taskData.task);
 
-        // Always fetch project details using task's project_id
+        // Fetch project details
         if (taskData.task && taskData.task.project_id) {
           try {
-            const projRes = await fetch(
-              `/api/projects/${encodeURIComponent(taskData.task.project_id)}`
-            );
+            const projRes = await fetch(`/api/projects/${encodeURIComponent(taskData.task.project_id)}`);
             if (projRes.ok) {
               const projData = await projRes.json();
+              if (ignore) return;
               setProjectDetails(projData.project || null);
             } else {
               setProjectDetails(null);
@@ -143,10 +148,11 @@ export default function TaskDetailSidebar({
           setProjectDetails(null);
         }
 
-        // Fetch all notes for this task (unified)
+        // Fetch all notes
         const notesRes = await fetch(`/api/notes?task_id=${encodeURIComponent(taskId)}`);
         if (!notesRes.ok) throw new Error('Failed to fetch notes');
         const notesData = await notesRes.json();
+        if (ignore) return;
         setNotes(Array.isArray(notesData.notes) ? notesData.notes : []);
       } catch (err) {
         if (process.env.NODE_ENV !== 'production') console.error(err);
@@ -159,18 +165,20 @@ export default function TaskDetailSidebar({
     };
 
     fetchTaskAndNotes();
-    
+
     // Fetch timer info
     const fetchTimerInfo = async () => {
       try {
         const res = await fetch(`/api/timers/${taskId}/current`);
         if (res.ok) {
           const data = await res.json();
-          setTimerInfo({
-            status: data.status,
-            elapsed_minutes: data.timer?.elapsed_minutes,
-            is_rework: data.timer?.is_rework
-          });
+          if (!ignore) {
+            setTimerInfo({
+              status: data.status,
+              elapsed_minutes: data.timer?.elapsed_minutes || 0,
+              is_rework: data.timer?.is_rework,
+            });
+          }
         }
       } catch (err) {
         if (process.env.NODE_ENV !== 'production') console.error('Failed to fetch timer info:', err);
@@ -178,6 +186,10 @@ export default function TaskDetailSidebar({
     };
 
     fetchTimerInfo();
+
+    return () => {
+      ignore = true;
+    };
   }, [taskId]);
 
   useEffect(() => {
@@ -187,8 +199,9 @@ export default function TaskDetailSidebar({
     }
   }, [task]);
 
+  // ---- Editing Handlers ----
   const handleSaveTitle = async () => {
-    if (editTitle.trim() === '') {
+    if (!editTitle.trim()) {
       alert('Title cannot be empty');
       return;
     }
@@ -199,18 +212,17 @@ export default function TaskDetailSidebar({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: editTitle.trim() }),
       });
-
       if (res.ok) {
-        setTask(prev => prev ? { ...prev, title: editTitle.trim() } : null);
+        setTask((prev) => (prev ? { ...prev, title: editTitle.trim() } : null));
         setIsEditingTitle(false);
       } else {
-        let data = { error: undefined } as any;
+        let data: { error?: string } = {};
         try {
           data = await res.json();
-        } catch { }
+        } catch {}
         alert(data.error || 'Failed to update title');
       }
-    } catch (err) {
+    } catch {
       alert('Network error');
     }
   };
@@ -224,22 +236,22 @@ export default function TaskDetailSidebar({
       });
 
       if (res.ok) {
-        setTask(prev => prev ? { ...prev, description: editDescription } : null);
+        setTask((prev) => (prev ? { ...prev, description: editDescription } : null));
         setIsEditingDescription(false);
       } else {
-        let data = { error: undefined } as any;
+        let data: { error?: string } = {};
         try {
           data = await res.json();
-        } catch { }
+        } catch {}
         alert(data.error || 'Failed to update description');
       }
-    } catch (err) {
+    } catch {
       alert('Network error');
     }
   };
 
   const handleAddNote = async () => {
-    if (!newNote.trim() || !session) return;
+    if (!newNote.trim() || !session?.user) return;
 
     setNoteLoading(true);
     try {
@@ -249,7 +261,7 @@ export default function TaskDetailSidebar({
         body: JSON.stringify({
           task_id: taskId,
           note: newNote,
-          note_type: 'COMMENT'
+          note_type: 'COMMENT',
         }),
       });
 
@@ -265,17 +277,18 @@ export default function TaskDetailSidebar({
         try {
           const error = await res.json();
           errorMsg = error?.error || errorMsg;
-        } catch { }
+        } catch {}
         alert(errorMsg);
       }
-    } catch (err) {
+    } catch {
       alert('Network error');
     } finally {
       setNoteLoading(false);
     }
   };
 
-  const getFeedbackMeta = (note: Note): any | undefined => {
+  // ---- Feedback handlers ----
+  function getFeedbackMeta(note: Note): any | undefined {
     if (note && note.note_type === 'FEEDBACK_IMAGE') {
       let metaRaw: any = undefined;
       if (note.metadata) metaRaw = note.metadata;
@@ -288,36 +301,36 @@ export default function TaskDetailSidebar({
       }
     }
     return undefined;
-  };
+  }
 
-  const handleEditFeedback = (note: Note) => {
+  function handleEditFeedback(note: Note) {
     try {
       const meta = getFeedbackMeta(note);
       setEditingFeedback({
         note,
         image: meta?.image || null,
-        comment: note.note
+        comment: note.note,
       });
-    } catch (e) {
+    } catch {
       setEditingFeedback({
         note,
         image: null,
-        comment: note.note
+        comment: note.note,
       });
     }
-  };
+  }
 
   const handleSaveFeedbackEdit = async () => {
     if (!editingFeedback) return;
 
     try {
-      const updateData: any = {
-        note: editingFeedback.comment
+      const updateData: Record<string, any> = {
+        note: editingFeedback.comment,
       };
 
       if (editingFeedback.image) {
         updateData.metadata = JSON.stringify({
-          image: editingFeedback.image
+          image: editingFeedback.image,
         });
       } else {
         updateData.metadata = JSON.stringify({});
@@ -337,13 +350,13 @@ export default function TaskDetailSidebar({
         }
         setEditingFeedback(null);
       } else {
-        let data = { error: undefined } as any;
+        let data: { error?: string } = {};
         try {
           data = await res.json();
-        } catch { }
+        } catch {}
         alert(data.error || 'Failed to update feedback');
       }
-    } catch (err) {
+    } catch {
       alert('Network error');
     }
   };
@@ -354,6 +367,7 @@ export default function TaskDetailSidebar({
     setUploadingFeedbackImage(true);
     try {
       const file = e.target.files[0];
+      if (!file) return;
       const formData = new FormData();
       formData.append('file', file);
 
@@ -364,18 +378,22 @@ export default function TaskDetailSidebar({
 
       if (res.ok) {
         const data = await res.json();
-        setEditingFeedback(prev => prev ? {
-          ...prev,
-          image: {
-            url: data.url,
-            public_id: data.public_id,
-            original_name: data.original_name,
-            format: data.format,
-            bytes: data.bytes
-          }
-        } : null);
+        setEditingFeedback((prev) =>
+          prev
+            ? {
+                ...prev,
+                image: {
+                  url: data.url,
+                  public_id: data.public_id,
+                  original_name: data.original_name,
+                  format: data.format,
+                  bytes: data.bytes,
+                },
+              }
+            : null
+        );
       }
-    } catch (err) {
+    } catch {
       alert('Failed to upload image');
     } finally {
       setUploadingFeedbackImage(false);
@@ -386,7 +404,7 @@ export default function TaskDetailSidebar({
     if (editingFeedback) {
       setEditingFeedback({
         ...editingFeedback,
-        image: null
+        image: null,
       });
     }
   };
@@ -411,6 +429,7 @@ export default function TaskDetailSidebar({
     );
   }
 
+  // ---- Main Render ----
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div
@@ -419,7 +438,7 @@ export default function TaskDetailSidebar({
         aria-label="Close sidebar overlay"
         tabIndex={-1}
         role="button"
-      ></div>
+      />
       <div className="w-full max-w-md bg-white dark:bg-gray-800 p-6 border-l border-gray-200 dark:border-gray-700 relative z-50 overflow-y-auto max-h-screen">
         <button
           onClick={onClose}
@@ -434,7 +453,6 @@ export default function TaskDetailSidebar({
         <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded">
           <h3 className="font-semibold text-gray-800 dark:text-white">{task.title}</h3>
           <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{task.description}</p>
-          {/* Add project info */}
           {projectDetails && (
             <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
               <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400">Project</h4>
@@ -442,7 +460,6 @@ export default function TaskDetailSidebar({
               {projectDetails.client_name && (
                 <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Client: {projectDetails.client_name}</p>
               )}
-              {/* Fix property name typo: Website_url --> website_url */}
               {projectDetails.website_url && (
                 <a
                   href={projectDetails.website_url}
@@ -495,18 +512,21 @@ export default function TaskDetailSidebar({
             ) : (
               <div
                 onDoubleClick={() => {
-                  if (session?.user?.role === 'ADMIN' ||
+                  if (
+                    session?.user?.role === 'ADMIN' ||
                     session?.user?.role === 'PROJECT_MANAGER' ||
-                    session?.user?.role === 'TEAM_LEADER') {
+                    session?.user?.role === 'TEAM_LEADER'
+                  ) {
                     setIsEditingTitle(true);
                   }
                 }}
-                className={`mt-1 text-gray-800 dark:text-gray-200 cursor-text ${(session?.user?.role === 'ADMIN' ||
-                  session?.user?.role === 'PROJECT_MANAGER' ||
-                  session?.user?.role === 'TEAM_LEADER')
-                  ? 'hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1'
-                  : 'cursor-default'
-                  }`}
+                className={`mt-1 text-gray-800 dark:text-gray-200 cursor-text ${
+                  (session?.user?.role === 'ADMIN' ||
+                    session?.user?.role === 'PROJECT_MANAGER' ||
+                    session?.user?.role === 'TEAM_LEADER')
+                    ? 'hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1'
+                    : 'cursor-default'
+                }`}
               >
                 {task.title}
               </div>
@@ -549,18 +569,21 @@ export default function TaskDetailSidebar({
             ) : (
               <div
                 onDoubleClick={() => {
-                  if (session?.user?.role === 'ADMIN' ||
+                  if (
+                    session?.user?.role === 'ADMIN' ||
                     session?.user?.role === 'PROJECT_MANAGER' ||
-                    session?.user?.role === 'TEAM_LEADER') {
+                    session?.user?.role === 'TEAM_LEADER'
+                  ) {
                     setIsEditingDescription(true);
                   }
                 }}
-                className={`mt-1 text-gray-800 dark:text-gray-200 cursor-text ${(session?.user?.role === 'ADMIN' ||
-                  session?.user?.role === 'PROJECT_MANAGER' ||
-                  session?.user?.role === 'TEAM_LEADER')
-                  ? 'hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1'
-                  : 'cursor-default'
-                  }`}
+                className={`mt-1 text-gray-800 dark:text-gray-200 cursor-text ${
+                  (session?.user?.role === 'ADMIN' ||
+                    session?.user?.role === 'PROJECT_MANAGER' ||
+                    session?.user?.role === 'TEAM_LEADER')
+                    ? 'hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1'
+                    : 'cursor-default'
+                }`}
               >
                 {task.description && typeof task.description === 'string' && task.description.trim()
                   ? task.description
@@ -582,48 +605,50 @@ export default function TaskDetailSidebar({
 
           {(session?.user?.role === 'ADMIN' ||
             (!!task.assigned_by_id && session?.user?.id === task.assigned_by_id)) && (
-              <div className="mt-4">
-                <button
-                  onClick={() => {
-                    const event = new CustomEvent('edit-task', {
-                      detail: {
-                        id: task.id,
-                        project_id: task.project_id ?? '',
-                        team_type: task.team_type ?? '',
-                        title: task.title,
-                        description: task.description,
-                        priority: task.priority,
-                        assigned_to: task.assigned_to ?? '',
-                        qa_assigned_to: task.qa_assigned_to ?? '',
-                        estimated_minutes: task.estimated_minutes ?? null,
-                        status: task.status,
-                        files: task.files ?? []
-                      }
-                    });
-                    window.dispatchEvent(event);
-                  }}
-                  className="px-3 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700 text-sm"
-                  type="button"
-                >
-                  Edit Task
-                </button>
-              </div>
-            )}
+            <div className="mt-4">
+              <button
+                onClick={() => {
+                  const event = new CustomEvent('edit-task', {
+                    detail: {
+                      id: task.id,
+                      project_id: task.project_id ?? '',
+                      team_type: task.team_type ?? '',
+                      title: task.title,
+                      description: task.description,
+                      priority: task.priority,
+                      assigned_to: task.assigned_to ?? '',
+                      qa_assigned_to: task.qa_assigned_to ?? '',
+                      estimated_minutes: task.estimated_minutes ?? null,
+                      status: task.status,
+                      files: task.files ?? []
+                    },
+                  });
+                  window.dispatchEvent(event);
+                }}
+                className="px-3 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700 text-sm"
+                type="button"
+              >
+                Edit Task
+              </button>
+            </div>
+          )}
 
           {/* QA Feedback Button */}
           {session?.user?.role === 'QA' &&
             task.status === 'WAITING_FOR_QA' &&
-            task.qa_assigned_to === session.user?.id && (
+            task.qa_assigned_to === session?.user?.id && (
               <div className="mt-4">
                 <button
                   onClick={() => {
-                    window.dispatchEvent(new CustomEvent('qa-feedback', {
-                      detail: {
-                        taskId: task.id,
-                        taskTitle: task.title,
-                        taskDescription: task.description
-                      }
-                    }));
+                    window.dispatchEvent(
+                      new CustomEvent('qa-feedback', {
+                        detail: {
+                          taskId: task.id,
+                          taskTitle: task.title,
+                          taskDescription: task.description,
+                        },
+                      })
+                    );
                   }}
                   className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
                   type="button"
@@ -633,92 +658,219 @@ export default function TaskDetailSidebar({
               </div>
             )}
 
-          {/* ✅ Timer Controls */}
-          {task.status !== 'APPROVED' && task.assigned_to === session?.user?.id && timerInfo?.status !== 'USED' && (
-            <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-700 rounded">
-              <h3 className="text-sm font-medium text-gray-800 dark:text-white mb-2">Time Tracking</h3>
-              
-              {/* Timer Status */}
-              {timerInfo?.status === 'RUNNING' && (
-                <div className="flex items-center text-sm text-green-600 dark:text-green-400 mb-2">
-                  <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
-                  Timer Running: {timerInfo.elapsed_minutes} minutes
-                  {timerInfo.is_rework && ' (Rework)'}
-                </div>
-              )}
-              {timerInfo?.status === 'WARNING' && (
-                <div className="flex items-center text-sm text-yellow-600 dark:text-yellow-400 mb-2">
-                  <div className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
-                  ⚠️ Approaching time limit: {timerInfo.elapsed_minutes} minutes
-                </div>
-              )}
-              {timerInfo?.status === 'EXCEEDED' && (
-                <div className="flex items-center text-sm text-red-600 dark:text-red-400 mb-2">
-                  <div className="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
-                  ⏰ Time limit exceeded: {timerInfo.elapsed_minutes} minutes
-                </div>
-              )}
-              
-              {/* Timer Controls */}
-              {timerInfo?.status === 'AVAILABLE' ? (
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await fetch('/api/timers', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ task_id: task.id }),
-                      });
-                      if (res.ok) {
-                        // Refresh timer info
-                        const timerRes = await fetch(`/api/timers/${task.id}/current`);
-                        if (timerRes.ok) {
-                          const data = await timerRes.json();
-                          setTimerInfo({
-                            status: data.status,
-                            elapsed_minutes: data.timer?.elapsed_minutes,
-                            is_rework: data.timer?.is_rework
+          {/* Enhanced Timer Controls Section */}
+          {task.status !== 'APPROVED' &&
+            task.assigned_to === session?.user?.id &&
+            timerInfo?.status !== 'USED' && (
+              <div className="mt-4 p-4 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 rounded-lg border border-gray-200 dark:border-gray-600">
+                <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-3 flex items-center">
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Time Tracking
+                </h3>
+
+                {/* Timer Status Display */}
+                {timerInfo?.status === 'RUNNING' && (
+                  <div className="mb-3 p-3 bg-green-50 dark:bg-green-900/20 rounded border border-green-200 dark:border-green-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center text-sm font-medium text-green-700 dark:text-green-300">
+                        <div className="w-3 h-3 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                        Timer Running
+                      </div>
+                      {timerInfo.is_rework && (
+                        <span className="text-xs px-2 py-0.5 bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 rounded">
+                          🔄 Rework
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                      {Math.floor((timerInfo.elapsed_minutes || 0) / 60)}h {(timerInfo.elapsed_minutes || 0) % 60}m
+                    </div>
+                    {task.estimated_minutes && (
+                      <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                        Estimated: {task.estimated_minutes} minutes
+                        <div className="mt-1 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div
+                            className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                            style={{
+                              width: `${Math.min(
+                                ((timerInfo?.elapsed_minutes || 0) / (task.estimated_minutes || 1)) * 100,
+                                100
+                              )}%`,
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {timerInfo?.status === 'WARNING' && (
+                  <div className="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-300 dark:border-yellow-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center text-sm font-medium text-yellow-700 dark:text-yellow-300">
+                        <div className="w-3 h-3 bg-yellow-500 rounded-full mr-2 animate-pulse"></div>
+                        ⚠️ Approaching Limit
+                      </div>
+                    </div>
+                    <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                      {Math.floor((timerInfo.elapsed_minutes || 0) / 60)}h {(timerInfo.elapsed_minutes || 0) % 60}m
+                    </div>
+                    {task.estimated_minutes && (
+                      <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                        Estimated: {task.estimated_minutes} minutes
+                        <div className="mt-1 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div
+                            className="bg-yellow-500 h-2 rounded-full transition-all duration-300"
+                            style={{
+                              width: `${Math.min(
+                                ((timerInfo?.elapsed_minutes || 0) / (task.estimated_minutes || 1)) * 100,
+                                100
+                              )}%`,
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {timerInfo?.status === 'EXCEEDED' && (
+                  <div className="mb-3 p-3 bg-red-50 dark:bg-red-900/20 rounded border border-red-300 dark:border-red-700 animate-pulse">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center text-sm font-medium text-red-700 dark:text-red-300">
+                        <div className="w-3 h-3 bg-red-500 rounded-full mr-2 animate-ping"></div>
+                        ⏰ Time Exceeded!
+                      </div>
+                    </div>
+                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                      {Math.floor((timerInfo.elapsed_minutes || 0) / 60)}h {(timerInfo.elapsed_minutes || 0) % 60}m
+                    </div>
+                    {task.estimated_minutes && (
+                      <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                        Estimated: {task.estimated_minutes} minutes
+                        <div className="mt-1 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div
+                            className="bg-red-500 h-2 rounded-full transition-all duration-300"
+                            style={{
+                              width: `${Math.min(
+                                ((timerInfo?.elapsed_minutes || 0) / (task.estimated_minutes || 1)) * 100,
+                                100
+                              )}%`,
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-2 p-2 bg-red-100 dark:bg-red-900/40 rounded text-xs text-red-800 dark:text-red-200">
+                      <strong>⚠️ Notifications sent to:</strong>
+                      <ul className="mt-1 ml-4 list-disc">
+                        <li>Team Leaders</li>
+                        <li>Project Managers</li>
+                        <li>Administrators</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+
+                {/* Timer Control Buttons */}
+                <div className="flex space-x-2">
+                  {timerInfo?.status === 'AVAILABLE' ? (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/timers', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ task_id: task.id }),
                           });
+                          if (res.ok) {
+                            const timerRes = await fetch(`/api/timers/${task.id}/current`);
+                            if (timerRes.ok) {
+                              const data = await timerRes.json();
+                              setTimerInfo({
+                                status: data.status,
+                                elapsed_minutes: data.timer?.elapsed_minutes || 0,
+                                is_rework: data.timer?.is_rework,
+                              });
+                            }
+                          } else {
+                            const data = await res.json();
+                            alert(data.error || 'Failed to start timer');
+                          }
+                        } catch {
+                          alert('Network error');
                         }
-                      }
-                    } catch (err) {
-                      alert('Network error');
-                    }
-                  }}
-                  className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
-                  type="button"
-                >
-                  Start Timer
-                </button>
-              ) : (timerInfo?.status === 'RUNNING' || timerInfo?.status === 'WARNING' || timerInfo?.status === 'EXCEEDED') ? (
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await fetch(`/api/timers/${task.id}/stop`, { method: 'POST' });
-                      if (res.ok) {
-                        const data = await res.json();
-                        alert(`Timer stopped! Duration: ${data.duration} minutes${data.timeExceeded ? ' ⚠️ Time limit exceeded!' : ''}`);
-                        setTimerInfo({ status: 'USED' });
-                      }
-                    } catch (err) {
-                      alert('Network error');
-                    }
-                  }}
-                  className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-                  type="button"
-                >
-                  Stop Timer
-                </button>
-              ) : null}
-              
-              {/* Timer Used Message */}
-              {timerInfo?.status === 'USED' as string && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  Timer has already been used for this task
-                </p>
-              )}
-            </div>
-          )}
+                      }}
+                      className="flex-1 px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-sm flex items-center justify-center"
+                      type="button"
+                    >
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Start Timer
+                    </button>
+                  ) : (timerInfo?.status === 'RUNNING' || timerInfo?.status === 'WARNING' || timerInfo?.status === 'EXCEEDED') ? (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/timers/${task.id}/stop`, { method: 'POST' });
+                          if (res.ok) {
+                            const data = await res.json();
+                            const minutes = Math.floor(data.duration_seconds / 60);
+                            const seconds = data.duration_seconds % 60;
+
+                            if (data.timeExceeded) {
+                              alert(
+                                `⚠️ Timer stopped!\n\nDuration: ${minutes}m ${seconds}s\nEstimated: ${data.estimated_minutes} minutes\n\n⏰ TIME LIMIT EXCEEDED!\n\nNotifications have been sent to:\n• Team Leaders\n• Project Managers\n• Administrators`
+                              );
+                            } else {
+                              alert(`✅ Timer stopped!\n\nDuration: ${minutes}m ${seconds}s`);
+                            }
+
+                            setTimerInfo({ status: 'USED' });
+                          } else {
+                            const data = await res.json();
+                            alert(data.error || 'Failed to stop timer');
+                          }
+                        } catch {
+                          alert('Network error');
+                        }
+                      }}
+                      className={`flex-1 px-4 py-2 text-sm text-white rounded-lg transition-colors font-medium shadow-sm flex items-center justify-center ${
+                        timerInfo?.status === 'EXCEEDED'
+                          ? 'bg-red-600 hover:bg-red-700 animate-pulse'
+                          : 'bg-orange-600 hover:bg-orange-700'
+                      }`}
+                      type="button"
+                    >
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                      </svg>
+                      Stop Timer
+                    </button>
+                  ) : null}
+                </div>
+
+                {/* Timer Used Message */}
+                {timerInfo?.status === 'APPROVED' && (
+                  <p className="mt-3 text-xs text-center text-gray-500 dark:text-gray-400 italic">
+                    ✓ Timer has been completed for this task
+                  </p>
+                )}
+
+
+                {/* Estimated Time Info */}
+                {task.estimated_minutes && timerInfo?.status === 'AVAILABLE' && (
+                  <div className="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs text-blue-700 dark:text-blue-300">
+                    <strong>Estimated time:</strong> {task.estimated_minutes} minutes
+                  </div>
+                )}
+              </div>
+            )}
 
           {task.files && Array.isArray(task.files) && task.files.length > 0 && (
             <div className="mt-6">
@@ -736,11 +888,11 @@ export default function TaskDetailSidebar({
                     return null;
 
                   const isImage = file.resource_type === 'image';
-                  const isRaw = file.resource_type === 'raw';
+                  // const isRaw = file.resource_type === 'raw'; // unused variable
 
-                  const downloadUrl = isRaw
-                    ? (file.url?.replace('/upload/', '/upload/fl_attachment/') || file.url)
-                    : file.url;
+                  // const downloadUrl = isRaw
+                  //   ? file.url?.replace('/upload/', '/upload/fl_attachment/') || file.url
+                  //   : file.url;
 
                   return (
                     <div key={file.public_id || index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
@@ -763,13 +915,16 @@ export default function TaskDetailSidebar({
                             <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded">
                               {getFileTypeLabel(file.original_name || `File ${index + 1}`)}
                             </span>
-                            {typeof file.bytes === "number" && !isNaN(file.bytes) && (
+                            {typeof file.bytes === 'number' && !isNaN(file.bytes) && (
                               <span className="text-xs text-gray-500 dark:text-gray-400">
                                 {(file.bytes / 1024).toFixed(1)} KB
                               </span>
                             )}
                           </div>
-                          <p className="text-sm text-gray-800 dark:text-gray-200 font-medium mt-1 truncate" title={file.original_name || `File ${index + 1}`}>
+                          <p
+                            className="text-sm text-gray-800 dark:text-gray-200 font-medium mt-1 truncate"
+                            title={file.original_name || `File ${index + 1}`}
+                          >
                             {file.original_name || `File ${index + 1}`}
                           </p>
                           {isImage && (
@@ -781,7 +936,9 @@ export default function TaskDetailSidebar({
                             />
                           )}
                           <a
-                            href={`/api/download?public_id=${encodeURIComponent(file.public_id || '')}&resource_type=${encodeURIComponent(file.resource_type || '')}&filename=${encodeURIComponent(file.original_name || `File ${index + 1}`)}`}
+                            href={`/api/download?public_id=${encodeURIComponent(file.public_id || '')}&resource_type=${encodeURIComponent(
+                              file.resource_type || ''
+                            )}&filename=${encodeURIComponent(file.original_name || `File ${index + 1}`)}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center mt-2 text-blue-600 dark:text-blue-400 hover:underline text-xs"
@@ -803,12 +960,15 @@ export default function TaskDetailSidebar({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Priority</h3>
-              <span className={`inline-block mt-1 px-2 py-1 text-xs rounded ${task.priority === 'HIGH'
-                ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                : task.priority === 'MEDIUM'
-                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                  : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                }`}>
+              <span
+                className={`inline-block mt-1 px-2 py-1 text-xs rounded ${
+                  task.priority === 'HIGH'
+                    ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                    : task.priority === 'MEDIUM'
+                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                    : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                }`}
+              >
                 {task.priority}
               </span>
             </div>
@@ -834,21 +994,23 @@ export default function TaskDetailSidebar({
               {Array.isArray(notes) && notes.length > 0 ? (
                 notes.map((note) => {
                   // Check if this is QA's own feedback
-                  const isOwnFeedback = note.note_type === 'FEEDBACK_IMAGE' &&
+                  const isOwnFeedback =
+                    note.note_type === 'FEEDBACK_IMAGE' &&
                     session?.user?.id === note.user_id &&
                     session?.user?.role === 'QA';
 
                   return (
                     <div
                       key={note.id}
-                      className={`p-3 rounded ${note.note_type === 'APPROVAL'
-                        ? 'bg-green-100 dark:bg-green-900 border-l-4 border-green-500'
-                        : note.note_type === 'REJECTION'
+                      className={`p-3 rounded ${
+                        note.note_type === 'APPROVAL'
+                          ? 'bg-green-100 dark:bg-green-900 border-l-4 border-green-500'
+                          : note.note_type === 'REJECTION'
                           ? 'bg-red-100 dark:bg-red-900 border-l-4 border-red-500'
                           : note.note_type === 'FEEDBACK_IMAGE'
-                            ? 'bg-blue-100 dark:bg-blue-900 border-l-4 border-blue-500'
-                            : 'bg-gray-100 dark:bg-gray-700'
-                        }`}
+                          ? 'bg-blue-100 dark:bg-blue-900 border-l-4 border-blue-500'
+                          : 'bg-gray-100 dark:bg-gray-700'
+                      }`}
                     >
                       {/* Main Note */}
                       {note.note_type !== 'FEEDBACK_IMAGE' && (
@@ -859,14 +1021,13 @@ export default function TaskDetailSidebar({
                       {note.note_type === 'FEEDBACK_IMAGE' && (
                         <div className="mb-2">
                           <p className="text-sm text-gray-800 dark:text-gray-200 mb-2">{note.note}</p>
-                          {/* Only render if metadata has image, LINT SAFE */}
+                          {/* Only render if metadata has image */}
                           {(() => {
                             const meta = getFeedbackMeta(note);
                             if (meta && meta.image && meta.image.url) {
                               let imageUrl = meta.image.url;
-                              // Allow Cloudinary url fallback if not present.
-                              // NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME may not be defined! so fallback to empty string
                               if (
+                                typeof imageUrl === 'string' &&
                                 !imageUrl.startsWith('http') &&
                                 meta.image.public_id &&
                                 typeof process !== 'undefined' &&
@@ -876,7 +1037,6 @@ export default function TaskDetailSidebar({
                                 const format = meta.image.format || 'jpg';
                                 imageUrl = `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload/${meta.image.public_id}.${format}`;
                               }
-
                               return (
                                 <div className="mt-2">
                                   <a
@@ -891,19 +1051,20 @@ export default function TaskDetailSidebar({
                                       className="w-full rounded border border-gray-300 dark:border-gray-600 cursor-pointer hover:opacity-90 transition-opacity"
                                       style={{ maxHeight: '300px', objectFit: 'contain' }}
                                       onError={(e) => {
-                                        const target = e.target as HTMLImageElement;
+                                        const target = e.currentTarget as HTMLImageElement;
                                         target.style.display = 'none';
                                         const parent = target.parentElement;
                                         if (parent) {
                                           const fallback = document.createElement('div');
-                                          fallback.className = 'bg-gray-200 dark:bg-gray-700 p-4 rounded text-center text-sm text-gray-600 dark:text-gray-400';
+                                          fallback.className =
+                                            'bg-gray-200 dark:bg-gray-700 p-4 rounded text-center text-sm text-gray-600 dark:text-gray-400';
                                           fallback.innerHTML = `
-                                    <svg class="w-12 h-12 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                    </svg>
-                                    <p>Image failed to load</p>
-                                    <p class="text-xs mt-1">${meta.image.original_name || 'Unknown file'}</p>
-                                  `;
+                                            <svg class="w-12 h-12 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                            </svg>
+                                            <p>Image failed to load</p>
+                                            <p class="text-xs mt-1">${meta.image.original_name || 'Unknown file'}</p>
+                                          `;
                                           parent.appendChild(fallback);
                                         }
                                       }}
@@ -913,7 +1074,6 @@ export default function TaskDetailSidebar({
                                     {meta.image.original_name || 'Feedback image'}
                                     {meta.image.bytes && ` • ${(meta.image.bytes / 1024).toFixed(1)} KB`}
                                   </p>
-                                  {/* Edit button for QA's own feedback */}
                                   {isOwnFeedback && (
                                     <button
                                       onClick={() => handleEditFeedback(note)}
@@ -974,9 +1134,10 @@ export default function TaskDetailSidebar({
                 placeholder="Add a comment..."
                 className="flex-1 border border-gray-300 dark:border-gray-600 rounded-l px-3 py-1 text-gray-900 dark:text-white bg-white dark:bg-gray-700 text-sm"
                 aria-label="Add a comment"
-                onKeyDown={e => {
+                onKeyDown={(e) => {
                   if (
-                    (e.key === 'Enter' || (e as any).keyCode === 13) &&
+                    (e.key === 'Enter' ||
+                      (typeof (e as any).keyCode === 'number' ? (e as any).keyCode === 13 : false)) &&
                     !noteLoading &&
                     newNote.trim()
                   ) {
@@ -1043,7 +1204,13 @@ export default function TaskDetailSidebar({
               </label>
               <textarea
                 value={editingFeedback.comment}
-                onChange={(e) => setEditingFeedback({ ...editingFeedback, comment: e.target.value })}
+                onChange={(e) =>
+                  setEditingFeedback((prev) =>
+                    prev
+                      ? { ...prev, comment: e.target.value }
+                      : null
+                  )
+                }
                 className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 rows={3}
               />
