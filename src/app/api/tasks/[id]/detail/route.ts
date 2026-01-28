@@ -33,10 +33,14 @@ export async function GET(
         assigned_to_id: tasks.assigned_to,
         assigned_to_name: usersAssignedTo.name,
         assigned_by_name: usersAssignedBy.name,
+        assigned_by_id: tasks.assigned_by,
         project_name: projects.name,
+        project_id: tasks.project_id,
+        team_type: tasks.team_type,
+        estimated_minutes: tasks.estimated_minutes,
         created_at: tasks.created_at,
         files: tasks.files,
-        qa_assigned_to: tasks.qa_assigned_to, // ← Add this
+        qa_assigned_to: tasks.qa_assigned_to,
       })
       .from(tasks)
       .innerJoin(usersAssignedTo, eq(tasks.assigned_to, usersAssignedTo.id))
@@ -49,7 +53,7 @@ export async function GET(
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    const task = taskDetail[0];
+    let task = taskDetail[0];
 
     // ✅ Updated visibility rules:
     const isVisible =
@@ -59,21 +63,25 @@ export async function GET(
       
       // Team Leader can see team tasks
       (session.user.role === 'TEAM_LEADER' &&
-        (session.user.id === task.assigned_by_name || 
+        (session.user.id === task.assigned_by_id || 
          true)) ||
       
       // Developer can see their own tasks
       session.user.id === task.assigned_to_id ||
       
-      // ✅ QA can see WAITING_FOR_QA, APPROVED, REWORK tasks they reviewed
-      (session.user.role === 'QA' && 
-       (task.status === 'WAITING_FOR_QA' || 
-        task.status === 'APPROVED' || 
-        task.status === 'REWORK') && 
-       session.user.id === task.qa_assigned_to);
+      // ✅ QA can see tasks assigned to them (including WAITING_FOR_QA)
+      (session.user.role === 'QA' && session.user.id === task.qa_assigned_to);
 
     if (!isVisible) {
       return Response.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // ✅ Transform WAITING_FOR_QA to IN_PROGRESS for QA users
+    if (session.user.role === 'QA' && task.status === 'WAITING_FOR_QA') {
+      task = {
+        ...task,
+        status: 'IN_PROGRESS'
+      };
     }
 
     // Parse files JSON if exists

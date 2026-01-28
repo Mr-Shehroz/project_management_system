@@ -20,7 +20,14 @@ export async function GET(
   try {
     let projectTasks;
 
-    if (session.user.role === 'TEAM_LEADER') {
+    if (session.user.role === 'ADMIN' || session.user.role === 'PROJECT_MANAGER') {
+      // Admin & PM: get all tasks for this project
+      projectTasks = await db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.project_id, id));
+
+    } else if (session.user.role === 'TEAM_LEADER') {
       const teamMembers = await db
         .select({ id: users.id })
         .from(users)
@@ -45,8 +52,27 @@ export async function GET(
             )
           )
         );
+
+    } else if (session.user.role === 'QA') {
+      // ✅ QA: get tasks assigned to them for QA review
+      projectTasks = await db
+        .select()
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.project_id, id),
+            eq(tasks.qa_assigned_to, session.user.id)
+          )
+        );
+
+      // ✅ Transform WAITING_FOR_QA to IN_PROGRESS for QA users
+      projectTasks = projectTasks.map(task => ({
+        ...task,
+        status: task.status === 'WAITING_FOR_QA' ? 'IN_PROGRESS' : task.status
+      }));
+
     } else {
-      // All other users: get their own tasks for this project
+      // Developer/Designer: get their own tasks for this project
       projectTasks = await db
         .select()
         .from(tasks)

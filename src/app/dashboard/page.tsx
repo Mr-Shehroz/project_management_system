@@ -850,7 +850,15 @@ export default function KanbanBoard() {
           </div>
 
           {/* Kanban Columns */}
-          {Object.values(columns).map((column) => (
+          {Object.values(columns)
+            .filter(column => {
+              // ✅ Hide WAITING_FOR_QA column for QA role
+              if (session?.user?.role === 'QA' && column.id === 'WAITING_FOR_QA') {
+                return false;
+              }
+              return true;
+            })
+            .map((column) => (
             <Droppable key={column.id} droppableId={column.id}>
               {(provided) => (
                 <div

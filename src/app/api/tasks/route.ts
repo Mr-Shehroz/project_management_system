@@ -57,8 +57,7 @@ export async function GET(request: NextRequest) {
       userTasks = await db.select().from(tasks).where(whereCondition);
 
     } else if (session.user.role === 'QA') {
-      // ✅ QA should see ALL tasks they've been assigned to (any status)
-      // This ensures they can see projects even after approving/rejecting tasks
+      // ✅ QA should see tasks assigned to them
       const whereCondition = projectId
         ? and(
           eq(tasks.project_id, projectId),
@@ -67,6 +66,12 @@ export async function GET(request: NextRequest) {
         : eq(tasks.qa_assigned_to, session.user.id);
 
       userTasks = await db.select().from(tasks).where(whereCondition);
+
+      // ✅ Transform WAITING_FOR_QA tasks to IN_PROGRESS for QA users
+      userTasks = userTasks.map(task => ({
+        ...task,
+        status: task.status === 'WAITING_FOR_QA' ? 'IN_PROGRESS' : task.status
+      }));
 
     } else {
       // Developer/Designer: only their tasks (or filtered by project)
