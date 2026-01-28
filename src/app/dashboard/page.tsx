@@ -12,6 +12,7 @@ import NotificationToast from './NotificationToast';
 import EditTaskModal from './edit-task-modal';
 import QAAssignModal from './qa-assign-modal';
 
+// --- UPDATED Task Type ---
 type Task = {
   id: string;
   title: string;
@@ -21,6 +22,10 @@ type Task = {
   project_id: string;
   priority: string;
   estimated_minutes?: number | null;
+  // Added for QA Assignment status
+  qa_assigned_to?: string | null;
+  qa_assigned_to_name?: string | null;
+  qa_assigned_at?: string | null;
 };
 
 type User = {
@@ -358,8 +363,14 @@ export default function KanbanBoard() {
         REWORK: { ...initialColumns.REWORK, taskIds: [] }
       };
 
-      data.tasks.forEach((task: Task) => {
-        tasksMap[task.id] = task;
+      // --- UPDATED: Accept optional QA assignment fields ---
+      data.tasks.forEach((task: any) => {
+        tasksMap[task.id] = {
+          ...task,
+          qa_assigned_to: task.qa_assigned_to ?? null,
+          qa_assigned_to_name: task.qa_assigned_to_name ?? null,
+          qa_assigned_at: task.qa_assigned_at ?? null,
+        };
         if (cols[task.status]) {
           cols[task.status].taskIds.push(task.id);
         }
@@ -421,7 +432,7 @@ export default function KanbanBoard() {
           if (timer) {
             const elapsed = Math.floor((Date.now() - timer.start_time.getTime()) / 1000);
             updated[taskId] = { ...timer, elapsed_seconds: elapsed };
-            
+
             // Update status based on elapsed time
             const task = tasks[taskId];
             if (task?.estimated_minutes) {
@@ -436,7 +447,7 @@ export default function KanbanBoard() {
         });
         return updated;
       });
-      
+
       // ✅ ALSO re-fetch timer status every 10 seconds to catch backend notifications
       if (Date.now() % 10000 < 1000) {
         fetchActiveTimers();
@@ -585,7 +596,7 @@ export default function KanbanBoard() {
         const data = await res.json();
         const minutes = Math.floor(data.duration_seconds / 60);
         const seconds = data.duration_seconds % 60;
-        
+
         if (data.timeExceeded) {
           alert(`⚠️ Timer stopped!\n\nDuration: ${minutes}m ${seconds}s\nEstimated: ${data.estimated_minutes} minutes\n\n⏰ TIME LIMIT EXCEEDED!\nNotifications sent to Team Leaders, Project Managers, and Admins.`);
         } else {
@@ -718,13 +729,13 @@ export default function KanbanBoard() {
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
     const timeStr = `${minutes}m ${secs}s`;
-    
+
     if (estimatedMinutes) {
       const estimatedSeconds = estimatedMinutes * 60;
       const percentage = Math.round((seconds / estimatedSeconds) * 100);
       return `${timeStr} (${percentage}%)`;
     }
-    
+
     return timeStr;
   };
 
@@ -859,149 +870,164 @@ export default function KanbanBoard() {
               return true;
             })
             .map((column) => (
-            <Droppable key={column.id} droppableId={column.id}>
-              {(provided) => (
-                <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                  className="min-w-[280px] sm:min-w-[300px] bg-gray-100 dark:bg-gray-800 rounded-lg p-4 mr-4"
-                >
-                  <h2 className="font-bold mb-4 text-gray-800 dark:text-white">{column.title}</h2>
-                  <div className="space-y-3">
-                    {column.taskIds.map((taskId, index) => {
-                      const task = tasks[taskId];
-                      if (!task) return null;
-                      return (
-                        <Draggable key={task.id} draggableId={task.id} index={index}>
-                          {(provided) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              {...provided.dragHandleProps}
-                              onClick={() => {
-                                const task = tasks[taskId];
-                                if (!task) return;
-                                if (
-                                  session?.user?.role === 'ADMIN' ||
-                                  session?.user?.role === 'PROJECT_MANAGER' ||
-                                  session?.user?.role === 'TEAM_LEADER'
-                                ) {
-                                  if (task.status === 'WAITING_FOR_QA') {
-                                    setShowQAAssignModal(task.id);
+              <Droppable key={column.id} droppableId={column.id}>
+                {(provided) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    className="min-w-[280px] sm:min-w-[300px] bg-gray-100 dark:bg-gray-800 rounded-lg p-4 mr-4"
+                  >
+                    <h2 className="font-bold mb-4 text-gray-800 dark:text-white">{column.title}</h2>
+                    <div className="space-y-3">
+                      {column.taskIds.map((taskId, index) => {
+                        const task = tasks[taskId];
+                        if (!task) return null;
+                        return (
+                          <Draggable key={task.id} draggableId={task.id} index={index}>
+                            {(provided) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                // In your Draggable onClick:
+                                onClick={() => {
+                                  const task = tasks[taskId];
+                                  if (!task) return;
+
+                                  // Check if QA was already assigned
+                                  const isQaAlreadyAssigned = !!task.qa_assigned_at;
+
+                                  if (
+                                    session?.user?.role === 'ADMIN' ||
+                                    session?.user?.role === 'PROJECT_MANAGER' ||
+                                    session?.user?.role === 'TEAM_LEADER'
+                                  ) {
+                                    // Only show QA Assign Modal if QA hasn't been assigned yet
+                                    if (task.status === 'WAITING_FOR_QA' && !isQaAlreadyAssigned) {
+                                      setShowQAAssignModal(task.id);
+                                    } else {
+                                      setSelectedTaskId(task.id);
+                                    }
+                                  } else if (session?.user?.role === 'QA') {
+                                    setSelectedTaskId(task.id);
                                   } else {
                                     setSelectedTaskId(task.id);
                                   }
-                                } else {
-                                  setSelectedTaskId(task.id);
-                                }
-                              }}
-                              className="bg-white dark:bg-gray-700 p-4 rounded shadow-sm border border-gray-200 dark:border-gray-600 cursor-pointer hover:shadow-md transition-shadow"
-                            >
-                              <h3 className="font-semibold text-gray-800 dark:text-white">{task.title}</h3>
-                              {task.description && (
-                                <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 line-clamp-2">
-                                  {task.description}
-                                </p>
-                              )}
+                                }}
+                                className="bg-white dark:bg-gray-700 p-4 rounded shadow-sm border border-gray-200 dark:border-gray-600 cursor-pointer hover:shadow-md transition-shadow"
+                              >
+                                <h3 className="font-semibold text-gray-800 dark:text-white">{task.title}</h3>
+                                {task.description && (
+                                  <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 line-clamp-2">
+                                    {task.description}
+                                  </p>
+                                )}
 
-                              {/* Enhanced Timer Status Indicators */}
-                              {task.status !== 'APPROVED' && timerStatus[task.id] === 'RUNNING' && (
-                                <div className="mt-2 p-2 bg-green-50 dark:bg-green-900/20 rounded border border-green-200 dark:border-green-700">
-                                  <div className="flex items-center text-xs text-green-700 dark:text-green-300">
-                                    <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-                                    <span className="font-medium">
-                                      {formatTimerDisplay(activeTimers[task.id]?.elapsed_seconds || 0, task.estimated_minutes)}
-                                    </span>
+                                {/* Show QA assignment status */}
+                                {(task.qa_assigned_to || task.qa_assigned_at) && (
+                                  <div className="mt-1 text-xs text-blue-600 dark:text-blue-400">
+                                    QA: {task.qa_assigned_to_name || task.qa_assigned_to || 'Unassigned'}
+                                    {task.qa_assigned_at ? ' ✓' : ''}
                                   </div>
-                                  {activeTimers[task.id]?.is_rework && (
-                                    <div className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                                      🔄 Rework
+                                )}
+
+                                {/* Enhanced Timer Status Indicators */}
+                                {task.status !== 'APPROVED' && timerStatus[task.id] === 'RUNNING' && (
+                                  <div className="mt-2 p-2 bg-green-50 dark:bg-green-900/20 rounded border border-green-200 dark:border-green-700">
+                                    <div className="flex items-center text-xs text-green-700 dark:text-green-300">
+                                      <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                                      <span className="font-medium">
+                                        {formatTimerDisplay(activeTimers[task.id]?.elapsed_seconds || 0, task.estimated_minutes)}
+                                      </span>
                                     </div>
-                                  )}
-                                </div>
-                              )}
+                                    {activeTimers[task.id]?.is_rework && (
+                                      <div className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                                        🔄 Rework
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
 
-                              {task.status !== 'APPROVED' && timerStatus[task.id] === 'WARNING' && (
-                                <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-300 dark:border-yellow-700">
-                                  <div className="flex items-center text-xs text-yellow-700 dark:text-yellow-300">
-                                    <div className="w-2 h-2 bg-yellow-500 rounded-full mr-2 animate-pulse"></div>
-                                    <span className="font-medium">
-                                      ⚠️ {formatTimerDisplay(activeTimers[task.id]?.elapsed_seconds || 0, task.estimated_minutes)}
-                                    </span>
+                                {task.status !== 'APPROVED' && timerStatus[task.id] === 'WARNING' && (
+                                  <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-300 dark:border-yellow-700">
+                                    <div className="flex items-center text-xs text-yellow-700 dark:text-yellow-300">
+                                      <div className="w-2 h-2 bg-yellow-500 rounded-full mr-2 animate-pulse"></div>
+                                      <span className="font-medium">
+                                        ⚠️ {formatTimerDisplay(activeTimers[task.id]?.elapsed_seconds || 0, task.estimated_minutes)}
+                                      </span>
+                                    </div>
+                                    <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                                      Approaching time limit
+                                    </div>
                                   </div>
-                                  <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                                    Approaching time limit
-                                  </div>
-                                </div>
-                              )}
+                                )}
 
-                              {task.status !== 'APPROVED' && timerStatus[task.id] === 'EXCEEDED' && (
-                                <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-300 dark:border-red-700">
-                                  <div className="flex items-center text-xs text-red-700 dark:text-red-300">
-                                    <div className="w-2 h-2 bg-red-500 rounded-full mr-2 animate-pulse"></div>
-                                    <span className="font-medium">
-                                      ⏰ {formatTimerDisplay(activeTimers[task.id]?.elapsed_seconds || 0, task.estimated_minutes)}
-                                    </span>
+                                {task.status !== 'APPROVED' && timerStatus[task.id] === 'EXCEEDED' && (
+                                  <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-300 dark:border-red-700">
+                                    <div className="flex items-center text-xs text-red-700 dark:text-red-300">
+                                      <div className="w-2 h-2 bg-red-500 rounded-full mr-2 animate-pulse"></div>
+                                      <span className="font-medium">
+                                        ⏰ {formatTimerDisplay(activeTimers[task.id]?.elapsed_seconds || 0, task.estimated_minutes)}
+                                      </span>
+                                    </div>
+                                    <div className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">
+                                      Time exceeded - Managers notified!
+                                    </div>
                                   </div>
-                                  <div className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">
-                                    Time exceeded - Managers notified!
-                                  </div>
-                                </div>
-                              )}
+                                )}
 
-                              <div className="mt-2 flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                                <span>Priority: {task.priority}</span>
-                                <span>{task.assigned_to}</span>
+                                <div className="mt-2 flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                                  <span>Priority: {task.priority}</span>
+                                  <span>{task.assigned_to}</span>
+                                </div>
+
+                                {/* Timer Controls */}
+                                {task.status !== 'APPROVED' && task.assigned_to === session?.user?.id && timerStatus[task.id] !== 'USED' && (
+                                  <div className="mt-2 flex space-x-2">
+                                    {timerStatus[task.id] === 'AVAILABLE' ? (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleStartTimer(task.id);
+                                        }}
+                                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                                      >
+                                        ▶ Start Timer
+                                      </button>
+                                    ) : (timerStatus[task.id] === 'RUNNING' || timerStatus[task.id] === 'WARNING' || timerStatus[task.id] === 'EXCEEDED') ? (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleStopTimer(task.id);
+                                        }}
+                                        className={`px-2 py-1 text-xs text-white rounded transition-colors ${timerStatus[task.id] === 'EXCEEDED'
+                                            ? 'bg-red-600 hover:bg-red-700 animate-pulse'
+                                            : 'bg-orange-600 hover:bg-orange-700'
+                                          }`}
+                                      >
+                                        ⏹ Stop Timer
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                )}
+
+                                {/* Timer Used Message */}
+                                {task.status !== 'APPROVED' && timerStatus[task.id] === 'USED' && (
+                                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 italic">
+                                    ✓ Timer completed
+                                  </div>
+                                )}
                               </div>
-
-                              {/* Timer Controls */}
-                              {task.status !== 'APPROVED' && task.assigned_to === session?.user?.id && timerStatus[task.id] !== 'USED' && (
-                                <div className="mt-2 flex space-x-2">
-                                  {timerStatus[task.id] === 'AVAILABLE' ? (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleStartTimer(task.id);
-                                      }}
-                                      className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-                                    >
-                                      ▶ Start Timer
-                                    </button>
-                                  ) : (timerStatus[task.id] === 'RUNNING' || timerStatus[task.id] === 'WARNING' || timerStatus[task.id] === 'EXCEEDED') ? (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleStopTimer(task.id);
-                                      }}
-                                      className={`px-2 py-1 text-xs text-white rounded transition-colors ${
-                                        timerStatus[task.id] === 'EXCEEDED' 
-                                          ? 'bg-red-600 hover:bg-red-700 animate-pulse' 
-                                          : 'bg-orange-600 hover:bg-orange-700'
-                                      }`}
-                                    >
-                                      ⏹ Stop Timer
-                                    </button>
-                                  ) : null}
-                                </div>
-                              )}
-
-                              {/* Timer Used Message */}
-                              {task.status !== 'APPROVED' && timerStatus[task.id] === 'USED' && (
-                                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 italic">
-                                  ✓ Timer completed
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </Draggable>
-                      );
-                    })}
-                    {provided.placeholder}
+                            )}
+                          </Draggable>
+                        );
+                      })}
+                      {provided.placeholder}
+                    </div>
                   </div>
-                </div>
-              )}
-            </Droppable>
-          ))}
+                )}
+              </Droppable>
+            ))}
         </div>
       </DragDropContext>
 

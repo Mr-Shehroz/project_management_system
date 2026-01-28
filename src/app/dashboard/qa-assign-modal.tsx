@@ -41,6 +41,7 @@ export default function QAAssignModal({
     fetchQAs();
   }, []);
 
+  // In your QA Assign Modal:
   const handleAssign = async () => {
     if (!selectedQA) {
       alert('Please select a QA reviewer');
@@ -57,10 +58,10 @@ export default function QAAssignModal({
 
       if (res.ok) {
         onClose();
-        // Refresh tasks
         window.dispatchEvent(new CustomEvent('refresh-tasks'));
       } else {
         const data = await res.json();
+        // ✅ Show specific error message
         alert(data.error || 'Failed to assign QA');
       }
     } catch (err) {
@@ -74,7 +75,7 @@ export default function QAAssignModal({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
         <h2 className="text-lg font-bold mb-4 text-gray-800 dark:text-white">Assign QA Reviewer</h2>
-        
+
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">

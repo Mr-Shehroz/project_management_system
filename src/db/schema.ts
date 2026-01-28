@@ -52,23 +52,23 @@ export const tasks = mysqlTable('tasks', {
     description: text('description'),
     files: text('files'),
     priority: mysqlEnum('priority', ['LOW', 'MEDIUM', 'HIGH']).notNull(),
-    assigned_by: varchar('assigned_by', { length: 255 }).notNull(), // user.id
-    assigned_to: varchar('assigned_to', { length: 255 }).notNull(), // user.id
+    assigned_by: varchar('assigned_by', { length: 255 }).notNull(),
+    assigned_to: varchar('assigned_to', { length: 255 }).notNull(),
     qa_assigned_to: varchar('qa_assigned_to', { length: 255 }), // optional
+    qa_assigned_at: timestamp('qa_assigned_at'), // ✅ NEW FIELD
     estimated_minutes: int('estimated_minutes'),
     status: mysqlEnum('status', [
-        'IN_PROGRESS',
-        'WAITING_FOR_QA',
-        'APPROVED',
-        'REWORK',
+      'IN_PROGRESS',
+      'WAITING_FOR_QA',
+      'APPROVED',
+      'REWORK',
     ]).notNull(),
     started_at: timestamp('started_at'),
     completed_at: timestamp('completed_at'),
     locked_at: timestamp('locked_at'),
     created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
     updated_at: timestamp('updated_at').default(sql`CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`),
-    
-});
+  });
 
 
 // Task Timers Table

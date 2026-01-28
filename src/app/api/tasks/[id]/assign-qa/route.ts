@@ -38,6 +38,14 @@ export async function POST(
       return Response.json({ error: 'Task not found' }, { status: 404 });
     }
 
+    // ✅ Check if QA was already assigned
+    if (task[0].qa_assigned_to && task[0].qa_assigned_at) {
+      console.error('QA already assigned:', { taskId: id, qaId: task[0].qa_assigned_to });
+      return Response.json({ 
+        error: 'QA has already been assigned to this task. Reassignment is not allowed.' 
+      }, { status: 400 });
+    }
+
     // Verify task is in WAITING_FOR_QA status
     if (task[0].status !== 'WAITING_FOR_QA') {
       console.error('Task is not waiting for QA:', { taskId: id, status: task[0].status });
@@ -62,16 +70,17 @@ export async function POST(
       return Response.json({ error: 'Invalid QA user' }, { status: 400 });
     }
 
-    // Assign QA (task remains in WAITING_FOR_QA status)
+    // ✅ Assign QA with timestamp
     await db
       .update(tasks)
       .set({
         qa_assigned_to: qa_id,
+        qa_assigned_at: new Date(), // ✅ Set assignment timestamp
         updated_at: new Date(),
       })
       .where(eq(tasks.id, id));
 
-    // After assigning QA, create notification
+    // Create notification for QA
     await db.insert(notifications).values({
       id: uuidv4(),
       user_id: qa_id,
