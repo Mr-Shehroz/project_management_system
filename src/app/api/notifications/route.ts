@@ -25,15 +25,14 @@ export async function GET() {
         created_at: notifications.created_at,
         task_title: tasks.title,
         project_name: projects.name,
-        requester_name: users.name, // ✅ Add requester name for help requests
+        requester_name: users.name,
       })
       .from(notifications)
       .innerJoin(tasks, eq(notifications.task_id, tasks.id))
       .innerJoin(projects, eq(tasks.project_id, projects.id))
-      .innerJoin(users, eq(tasks.assigned_to, users.id)) // This gives the requester
+      .leftJoin(users, eq(tasks.assigned_to, users.id)) // Use leftJoin for cases where assigned_to might be null
       .where(eq(notifications.user_id, session.user.id))
-      .orderBy(desc(notifications.created_at))
-      .limit(50);
+      .orderBy(desc(notifications.created_at));
 
     // Count unread notifications
     const unreadCountRows = await db

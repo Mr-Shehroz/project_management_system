@@ -496,14 +496,18 @@ export default function KanbanBoard() {
                 title = '🆘 Help Requested!';
                 message = `User "${note.requester_name}" needs help with task "${note.task_title}"`;
                 break;
+              case 'READY_FOR_ASSIGNMENT':
+                title = '✅ Ready for Assignment!';
+                message = `Task "${note.task_title}" in project "${note.project_name}" is ready for assignment`;
+                break;
               default:
                 continue;
             }
 
-            // Show desktop notification
+            // ✅ ALWAYS show desktop notification (even when tab is minimized)
             showDesktopNotification(title, message, note.task_id, true);
 
-            // Show in-app toast if page is visible
+            // Show in-app toast ONLY if page is visible
             if (document.visibilityState === 'visible') {
               showInAppNotification(title, message, note.task_id);
             }

@@ -3,8 +3,9 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { db } from '@/db';
-import { tasks, users, projects } from '@/db/schema';
+import { tasks, users, projects, notifications } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
+import { v4 as uuidv4 } from 'uuid';
 
 export async function PUT(
   request: NextRequest,
@@ -18,39 +19,41 @@ export async function PUT(
   const { id } = await params;
 
   // Get current task to verify ownership
-  const currentTask = await db
+  const currentTaskArr = await db
     .select()
     .from(tasks)
     .where(eq(tasks.id, id))
     .limit(1);
 
-  if (currentTask.length === 0) {
+  if (currentTaskArr.length === 0) {
     return Response.json({ error: 'Task not found' }, { status: 404 });
   }
+
+  const currentTask = currentTaskArr[0];
 
   const requestData = await request.json();
 
   // Handle status updates separately
   if (requestData.status !== undefined) {
     const { status } = requestData;
-    
+
     // Validate status transitions
-    const oldStatus = currentTask[0].status;
-    
+    const oldStatus = currentTask.status;
+
     // Only assigned member can move from IN_PROGRESS to WAITING_FOR_QA
     if (oldStatus === 'IN_PROGRESS' && status === 'WAITING_FOR_QA') {
-      if (currentTask[0].assigned_to !== session.user.id) {
+      if (currentTask.assigned_to !== session.user.id) {
         return Response.json({ error: 'Only the assigned member can submit for QA' }, { status: 403 });
       }
     }
-    
+
     // Only QA can approve or request rework
     if ((status === 'APPROVED' || status === 'REWORK') && session.user.role !== 'QA') {
       return Response.json({ error: 'Only QA can approve or request rework' }, { status: 403 });
     }
-    
+
     // Only Admin/PM/Team Leader can move back to PENDING
-    if (status === 'PENDING' && 
+    if (status === 'PENDING' &&
         !['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER'].includes(session.user.role)) {
       return Response.json({ error: 'Insufficient permissions to reset task status' }, { status: 403 });
     }
@@ -66,6 +69,59 @@ export async function PUT(
             updated_at: new Date(),
           })
           .where(eq(tasks.id, id));
+        return Response.json({ success: true }, { status: 200 });
+      } 
+      // ---- Custom: When marking as 'READY_FOR_ASSIGNMENT' send notifications ----
+      else if (status === 'READY_FOR_ASSIGNMENT') {
+        // Get the relevant team_type (from request body or use existing)
+        let team_type = requestData.team_type;
+        if (!team_type) {
+          team_type = currentTask.team_type as string;
+        }
+        // Send notifications only if team_type is available
+        if (!team_type) {
+          return Response.json({ error: 'Missing team_type for READY_FOR_ASSIGNMENT' }, { status: 400 });
+        }
+
+        // Get all users who should receive READY_FOR_ASSIGNMENT notifications
+        const assignUsers = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(
+            or(
+              eq(users.role, 'ADMIN'),
+              eq(users.role, 'PROJECT_MANAGER'),
+              and(
+                eq(users.role, 'TEAM_LEADER'),
+                eq(users.team_type, team_type)
+              )
+            )
+          );
+
+        // Insert notifications
+        const notificationPromises = assignUsers.map(user =>
+          db.insert(notifications).values({
+            id: uuidv4(),
+            user_id: user.id,
+            task_id: id,
+            type: 'READY_FOR_ASSIGNMENT',
+            is_read: false,
+            created_at: new Date(),
+          })
+        );
+        await Promise.all(notificationPromises);
+
+        // Actually update the task's status
+        await db
+          .update(tasks)
+          .set({
+            // @ts-expect-error: Allow wider status for READY_FOR_ASSIGNMENT
+            status: 'READY_FOR_ASSIGNMENT',
+            updated_at: new Date(),
+          })
+          .where(eq(tasks.id, id));
+
+        return Response.json({ success: true }, { status: 200 });
       } else {
         await db
           .update(tasks)
@@ -74,9 +130,8 @@ export async function PUT(
             updated_at: new Date(),
           })
           .where(eq(tasks.id, id));
+        return Response.json({ success: true }, { status: 200 });
       }
-
-      return Response.json({ success: true }, { status: 200 });
     } catch (err) {
       console.error('Status update error:', err);
       return Response.json({ error: 'Failed to update task status' }, { status: 500 });
@@ -84,13 +139,13 @@ export async function PUT(
   }
 
   // Determine if this is a full update (Edit Task Modal) or partial update (Inline Editing)
-  const isFullUpdate = 
+  const isFullUpdate =
     requestData.project_id !== undefined ||
     requestData.team_type !== undefined ||
     requestData.assigned_to !== undefined;
 
   // Permission check
-  const canEditFields = 
+  const canEditFields =
     session.user.role === 'ADMIN' ||
     session.user.role === 'PROJECT_MANAGER' ||
     session.user.role === 'TEAM_LEADER';
@@ -115,7 +170,7 @@ export async function PUT(
       .from(projects)
       .where(eq(projects.id, requestData.project_id))
       .limit(1);
-    
+
     if (project.length === 0) {
       return Response.json({ error: 'Invalid project' }, { status: 400 });
     }
@@ -153,12 +208,12 @@ export async function PUT(
     }
     updateFields.title = requestData.title.trim();
   }
-  
+
   // Handle description (both full and partial)
   if (requestData.description !== undefined) {
     updateFields.description = requestData.description.trim() || null;
   }
-  
+
   // Handle priority (both full and partial)
   if (requestData.priority !== undefined) {
     const validPriorities = ['LOW', 'MEDIUM', 'HIGH'];
@@ -167,7 +222,7 @@ export async function PUT(
     }
     updateFields.priority = requestData.priority;
   }
-  
+
   // Handle QA Assigned To (both full and partial)
   if (requestData.qa_assigned_to !== undefined) {
     if (requestData.qa_assigned_to === null) {
@@ -178,14 +233,14 @@ export async function PUT(
         .from(users)
         .where(eq(users.id, requestData.qa_assigned_to))
         .limit(1);
-      
+
       if (qaUser.length === 0 || qaUser[0].role !== 'QA') {
         return Response.json({ error: 'Invalid QA user' }, { status: 400 });
       }
       updateFields.qa_assigned_to = requestData.qa_assigned_to;
     }
   }
-  
+
   // Handle Estimated Minutes (both full and partial)
   if (requestData.estimated_minutes !== undefined) {
     if (requestData.estimated_minutes === null) {
@@ -198,7 +253,7 @@ export async function PUT(
       updateFields.estimated_minutes = minutes;
     }
   }
-  
+
   // Handle Files (both full and partial)
   if (requestData.files !== undefined) {
     if (Array.isArray(requestData.files)) {
@@ -221,6 +276,39 @@ export async function PUT(
         updated_at: new Date(),
       })
       .where(eq(tasks.id, id));
+
+    // If we just set the task to READY_FOR_ASSIGNMENT as part of a full update, also send notifications
+    if (
+      (requestData.status === 'READY_FOR_ASSIGNMENT' ||
+        updateFields.status === 'READY_FOR_ASSIGNMENT') &&
+      updateFields.team_type // should be present from full update
+    ) {
+      const assignUsers = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          or(
+            eq(users.role, 'ADMIN'),
+            eq(users.role, 'PROJECT_MANAGER'),
+            and(
+              eq(users.role, 'TEAM_LEADER'),
+              eq(users.team_type, updateFields.team_type)
+            )
+          )
+        );
+
+      const notificationPromises = assignUsers.map(user =>
+        db.insert(notifications).values({
+          id: uuidv4(),
+          user_id: user.id,
+          task_id: id,
+          type: 'READY_FOR_ASSIGNMENT',
+          is_read: false,
+          created_at: new Date(),
+        })
+      );
+      await Promise.all(notificationPromises);
+    }
 
     return Response.json({ success: true }, { status: 200 });
   } catch (err) {
