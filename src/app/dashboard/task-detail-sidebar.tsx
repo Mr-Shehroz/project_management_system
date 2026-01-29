@@ -658,6 +658,36 @@ export default function TaskDetailSidebar({
               </div>
             )}
 
+          {/* Help Button - Only for non-admin users */}
+          {!['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER', 'QA'].includes(session?.user?.role || '') && (
+            <div className="mt-4">
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/help-request', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ task_id: task.id }),
+                    });
+
+                    if (res.ok) {
+                      alert('✅ Help request sent! Admin, Project Managers, and Team Leaders have been notified.');
+                    } else {
+                      const data = await res.json();
+                      alert(data.error || 'Failed to send help request');
+                    }
+                  } catch (err) {
+                    alert('Network error');
+                  }
+                }}
+                className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm w-full"
+                type="button"
+              >
+                🆘 Request Help
+              </button>
+            </div>
+          )}
+
           {/* Enhanced Timer Controls Section */}
           {task.status !== 'APPROVED' &&
             task.assigned_to === session?.user?.id &&

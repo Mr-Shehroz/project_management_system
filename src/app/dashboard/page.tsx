@@ -488,13 +488,13 @@ export default function KanbanBoard() {
                 title = '🔍 QA Review Requested';
                 message = `Task "${note.task_title}" needs QA review`;
                 break;
-              case 'TIME_EXCEEDED_REALTIME':
-                title = '⏰ Time Limit Exceeded! (Real-time)';
-                message = `Task "${note.task_title}" in project "${note.project_name}" has exceeded its time limit while running`;
-                break;
               case 'TIME_EXCEEDED':
-                title = '⏰ Time Limit Exceeded! (Timer Stopped)';
-                message = `Task "${note.task_title}" in project "${note.project_name}" was stopped with exceeded time`;
+                title = '⏰ Time Limit Exceeded!';
+                message = `Task "${note.task_title}" has exceeded its time limit`;
+                break;
+              case 'HELP_REQUEST':
+                title = '🆘 Help Requested!';
+                message = `User "${note.requester_name}" needs help with task "${note.task_title}"`;
                 break;
               default:
                 continue;

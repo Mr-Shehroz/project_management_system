@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
 import { db } from '@/db';
-import { notifications, tasks, projects } from '@/db/schema';
+import { notifications, tasks, projects, users } from '@/db/schema';
 import { eq, and, desc, count } from 'drizzle-orm';
 
 // GET notifications for current user
@@ -14,7 +14,7 @@ export async function GET() {
   }
 
   try {
-    // Get notifications with task title and project name
+    // Get notifications with task title, project name, and requester name for help requests
     const notificationList = await db
       .select({
         id: notifications.id,
@@ -25,13 +25,15 @@ export async function GET() {
         created_at: notifications.created_at,
         task_title: tasks.title,
         project_name: projects.name,
+        requester_name: users.name, // ✅ Add requester name for help requests
       })
       .from(notifications)
       .innerJoin(tasks, eq(notifications.task_id, tasks.id))
       .innerJoin(projects, eq(tasks.project_id, projects.id))
+      .innerJoin(users, eq(tasks.assigned_to, users.id)) // This gives the requester
       .where(eq(notifications.user_id, session.user.id))
       .orderBy(desc(notifications.created_at))
-      .limit(50); // Increased limit to show more notifications
+      .limit(50);
 
     // Count unread notifications
     const unreadCountRows = await db
