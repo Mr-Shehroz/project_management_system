@@ -82,11 +82,14 @@ export async function GET(request: NextRequest) {
       userTasks = await db.select().from(tasks).where(whereCondition);
     }
 
-    // Parse files JSON if exists
-    const tasksWithFiles = userTasks.map(task => ({
-      ...task,
-      files: task.files ? JSON.parse(task.files) : [],
-    }));
+    // Parse files JSON if exists, and include QA assignment info
+    const tasksWithFiles = userTasks.map(task => {
+      return {
+        ...task,
+        files: task.files ? JSON.parse(task.files) : [],
+        qa_assigned_to: task.qa_assigned_to, // ✅ Include this
+      };
+    });
 
     return Response.json({ tasks: tasksWithFiles });
   } catch (err) {

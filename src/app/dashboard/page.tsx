@@ -893,13 +893,13 @@ export default function KanbanBoard() {
                                 ref={provided.innerRef}
                                 {...provided.draggableProps}
                                 {...provided.dragHandleProps}
-                                // In your Draggable onClick:
                                 onClick={() => {
-                                  const task = tasks[taskId];
-                                  if (!task) return;
+                                  // existing click handler logic
+                                  const clickedTask = tasks[taskId];
+                                  if (!clickedTask) return;
 
                                   // Check if QA was already assigned
-                                  const isQaAlreadyAssigned = !!task.qa_assigned_at;
+                                  const isQaAlreadyAssigned = !!clickedTask.qa_assigned_at;
 
                                   if (
                                     session?.user?.role === 'ADMIN' ||
@@ -907,35 +907,38 @@ export default function KanbanBoard() {
                                     session?.user?.role === 'TEAM_LEADER'
                                   ) {
                                     // Only show QA Assign Modal if QA hasn't been assigned yet
-                                    if (task.status === 'WAITING_FOR_QA' && !isQaAlreadyAssigned) {
-                                      setShowQAAssignModal(task.id);
+                                    if (clickedTask.status === 'WAITING_FOR_QA' && !isQaAlreadyAssigned) {
+                                      setShowQAAssignModal(clickedTask.id);
                                     } else {
-                                      setSelectedTaskId(task.id);
+                                      setSelectedTaskId(clickedTask.id);
                                     }
                                   } else if (session?.user?.role === 'QA') {
-                                    setSelectedTaskId(task.id);
+                                    setSelectedTaskId(clickedTask.id);
                                   } else {
-                                    setSelectedTaskId(task.id);
+                                    setSelectedTaskId(clickedTask.id);
                                   }
                                 }}
                                 className="bg-white dark:bg-gray-700 p-4 rounded shadow-sm border border-gray-200 dark:border-gray-600 cursor-pointer hover:shadow-md transition-shadow"
                               >
                                 <h3 className="font-semibold text-gray-800 dark:text-white">{task.title}</h3>
+
                                 {task.description && (
                                   <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 line-clamp-2">
                                     {task.description}
                                   </p>
                                 )}
 
-                                {/* Show QA assignment status */}
-                                {(task.qa_assigned_to || task.qa_assigned_at) && (
-                                  <div className="mt-1 text-xs text-blue-600 dark:text-blue-400">
-                                    QA: {task.qa_assigned_to_name || task.qa_assigned_to || 'Unassigned'}
-                                    {task.qa_assigned_at ? ' ✓' : ''}
+                                {/* ✅ QA Assignment Status */}
+                                {task.qa_assigned_to && (
+                                  <div className="mt-1 flex items-center text-xs text-blue-600 dark:text-blue-400">
+                                    <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                                    </svg>
+                                    QA Assigned
                                   </div>
                                 )}
 
-                                {/* Enhanced Timer Status Indicators */}
+                                {/* Timer Status Indicators */}
                                 {task.status !== 'APPROVED' && timerStatus[task.id] === 'RUNNING' && (
                                   <div className="mt-2 p-2 bg-green-50 dark:bg-green-900/20 rounded border border-green-200 dark:border-green-700">
                                     <div className="flex items-center text-xs text-green-700 dark:text-green-300">
@@ -952,6 +955,7 @@ export default function KanbanBoard() {
                                   </div>
                                 )}
 
+                                {/* ... rest of the card ... */}
                                 {task.status !== 'APPROVED' && timerStatus[task.id] === 'WARNING' && (
                                   <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-300 dark:border-yellow-700">
                                     <div className="flex items-center text-xs text-yellow-700 dark:text-yellow-300">
@@ -1005,8 +1009,8 @@ export default function KanbanBoard() {
                                           handleStopTimer(task.id);
                                         }}
                                         className={`px-2 py-1 text-xs text-white rounded transition-colors ${timerStatus[task.id] === 'EXCEEDED'
-                                            ? 'bg-red-600 hover:bg-red-700 animate-pulse'
-                                            : 'bg-orange-600 hover:bg-orange-700'
+                                          ? 'bg-red-600 hover:bg-red-700 animate-pulse'
+                                          : 'bg-orange-600 hover:bg-orange-700'
                                           }`}
                                       >
                                         ⏹ Stop Timer
