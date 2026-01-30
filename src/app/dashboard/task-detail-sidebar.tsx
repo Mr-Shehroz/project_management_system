@@ -1,6 +1,5 @@
 // src/app/dashboard/task-detail-sidebar.tsx
 'use client';
-
 import React, { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 
@@ -92,18 +91,15 @@ export default function TaskDetailSidebar({
   const [noteLoading, setNoteLoading] = useState(false);
   const { data: session } = useSession();
 
-  // Inline edit state
+  // ✅ Inline edit state - now properly managed
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
+
   const [editingFeedback, setEditingFeedback] = useState<{ note: Note; image?: any; comment: string } | null>(null);
   const [uploadingFeedbackImage, setUploadingFeedbackImage] = useState(false);
-
-  // Project details
   const [projectDetails, setProjectDetails] = useState<ProjectDetails | null>(null);
-
-  // Timer state
   const [timerInfo, setTimerInfo] = useState<{
     status: 'AVAILABLE' | 'RUNNING' | 'WARNING' | 'EXCEEDED' | 'USED' | 'APPROVED';
     elapsed_minutes?: number;
@@ -117,14 +113,12 @@ export default function TaskDetailSidebar({
 
     const fetchTaskAndNotes = async () => {
       try {
-        // Fetch task details
         const taskRes = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/detail`);
         if (!taskRes.ok) throw new Error('Failed to fetch task');
         const taskData = await taskRes.json();
         if (ignore) return;
         setTask(taskData.task);
 
-        // Fetch project details
         if (taskData.task && taskData.task.project_id) {
           try {
             const projRes = await fetch(`/api/projects/${encodeURIComponent(taskData.task.project_id)}`);
@@ -142,7 +136,6 @@ export default function TaskDetailSidebar({
           setProjectDetails(null);
         }
 
-        // Fetch all notes
         const notesRes = await fetch(`/api/notes?task_id=${encodeURIComponent(taskId)}`);
         if (!notesRes.ok) throw new Error('Failed to fetch notes');
         const notesData = await notesRes.json();
@@ -160,7 +153,6 @@ export default function TaskDetailSidebar({
 
     fetchTaskAndNotes();
 
-    // Fetch timer info
     const fetchTimerInfo = async () => {
       try {
         const res = await fetch(`/api/timers/${taskId}/current`);
@@ -180,12 +172,10 @@ export default function TaskDetailSidebar({
     };
 
     fetchTimerInfo();
-
-    return () => {
-      ignore = true;
-    };
+    return () => { ignore = true; };
   }, [taskId]);
 
+  // ✅ Initialize edit states when task loads
   useEffect(() => {
     if (task) {
       setEditTitle(task.title);
@@ -193,26 +183,26 @@ export default function TaskDetailSidebar({
     }
   }, [task]);
 
-  // ---- Editing Handlers ----
+  // ✅ Handle Title Save - FIXED
   const handleSaveTitle = async () => {
     if (!editTitle.trim()) {
       alert('Title cannot be empty');
       return;
     }
+
     try {
       const res = await fetch(`/api/tasks/${task?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: editTitle.trim() }),
       });
+
       if (res.ok) {
-        setTask((prev) => (prev ? { ...prev, title: editTitle.trim() } : null));
+        // ✅ Update local state immediately
+        setTask(prev => prev ? { ...prev, title: editTitle.trim() } : null);
         setIsEditingTitle(false);
       } else {
-        let data: { error?: string } = {};
-        try {
-          data = await res.json();
-        } catch {}
+        const data = await res.json();
         alert(data.error || 'Failed to update title');
       }
     } catch {
@@ -220,6 +210,7 @@ export default function TaskDetailSidebar({
     }
   };
 
+  // ✅ Handle Description Save - FIXED
   const handleSaveDescription = async () => {
     try {
       const res = await fetch(`/api/tasks/${task?.id}`, {
@@ -227,19 +218,30 @@ export default function TaskDetailSidebar({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description: editDescription }),
       });
+
       if (res.ok) {
-        setTask((prev) => (prev ? { ...prev, description: editDescription } : null));
+        // ✅ Update local state immediately
+        setTask(prev => prev ? { ...prev, description: editDescription } : null);
         setIsEditingDescription(false);
       } else {
-        let data: { error?: string } = {};
-        try {
-          data = await res.json();
-        } catch {}
+        const data = await res.json();
         alert(data.error || 'Failed to update description');
       }
     } catch {
       alert('Network error');
     }
+  };
+
+  // ✅ Handle Cancel Title Edit
+  const handleCancelTitleEdit = () => {
+    setEditTitle(task?.title || '');
+    setIsEditingTitle(false);
+  };
+
+  // ✅ Handle Cancel Description Edit
+  const handleCancelDescriptionEdit = () => {
+    setEditDescription(task?.description || '');
+    setIsEditingDescription(false);
   };
 
   const handleAddNote = async () => {
@@ -267,7 +269,7 @@ export default function TaskDetailSidebar({
         try {
           const error = await res.json();
           errorMsg = error?.error || errorMsg;
-        } catch {}
+        } catch { }
         alert(errorMsg);
       }
     } catch {
@@ -336,10 +338,7 @@ export default function TaskDetailSidebar({
         }
         setEditingFeedback(null);
       } else {
-        let data: { error?: string } = {};
-        try {
-          data = await res.json();
-        } catch {}
+        const data = await res.json();
         alert(data.error || 'Failed to update feedback');
       }
     } catch {
@@ -364,15 +363,15 @@ export default function TaskDetailSidebar({
         setEditingFeedback((prev) =>
           prev
             ? {
-                ...prev,
-                image: {
-                  url: data.url,
-                  public_id: data.public_id,
-                  original_name: data.original_name,
-                  format: data.format,
-                  bytes: data.bytes,
-                },
-              }
+              ...prev,
+              image: {
+                url: data.url,
+                public_id: data.public_id,
+                original_name: data.original_name,
+                format: data.format,
+                bytes: data.bytes,
+              },
+            }
             : null
         );
       }
@@ -444,9 +443,108 @@ export default function TaskDetailSidebar({
 
         {/* Project Info */}
         <div className="mb-6 p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 rounded-xl">
-          <h3 className="font-semibold text-lg text-gray-900 dark:text-white">{task.title}</h3>
-          <p className="text-gray-600 dark:text-gray-300 mt-2">{task.description || 'No description'}</p>
-          
+          {/* ✅ Title - Inline Edit */}
+          <div className="mb-3">
+            {isEditingTitle ? (
+              <div className="flex flex-col space-y-2">
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  autoFocus
+                />
+                <div className="flex space-x-2">
+                  <button
+                    onClick={handleSaveTitle}
+                    className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                    type="button"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={handleCancelTitleEdit}
+                    className="px-3 py-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded text-sm hover:bg-gray-400 dark:hover:bg-gray-500"
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                onDoubleClick={() => {
+                  if (
+                    session?.user?.role === 'ADMIN' ||
+                    session?.user?.role === 'PROJECT_MANAGER' ||
+                    session?.user?.role === 'TEAM_LEADER'
+                  ) {
+                    setIsEditingTitle(true);
+                  }
+                }}
+                className={`font-semibold text-lg text-gray-900 dark:text-white cursor-text ${(session?.user?.role === 'ADMIN' ||
+                    session?.user?.role === 'PROJECT_MANAGER' ||
+                    session?.user?.role === 'TEAM_LEADER')
+                    ? 'hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded'
+                    : ''
+                  }`}
+              >
+                {task.title}
+              </div>
+            )}
+          </div>
+
+          {/* ✅ Description - Inline Edit */}
+          <div>
+            {isEditingDescription ? (
+              <div className="flex flex-col space-y-2">
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  autoFocus
+                />
+                <div className="flex space-x-2">
+                  <button
+                    onClick={handleSaveDescription}
+                    className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                    type="button"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={handleCancelDescriptionEdit}
+                    className="px-3 py-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded text-sm hover:bg-gray-400 dark:hover:bg-gray-500"
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                onDoubleClick={() => {
+                  if (
+                    session?.user?.role === 'ADMIN' ||
+                    session?.user?.role === 'PROJECT_MANAGER' ||
+                    session?.user?.role === 'TEAM_LEADER'
+                  ) {
+                    setIsEditingDescription(true);
+                  }
+                }}
+                className={`text-gray-600 dark:text-gray-300 mt-2 cursor-text min-h-[20px] ${(session?.user?.role === 'ADMIN' ||
+                    session?.user?.role === 'PROJECT_MANAGER' ||
+                    session?.user?.role === 'TEAM_LEADER')
+                    ? 'hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded'
+                    : ''
+                  }`}
+              >
+                {task.description || 'No description'}
+              </div>
+            )}
+          </div>
+
           {projectDetails && (
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
               <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Project Details</h4>
@@ -491,13 +589,12 @@ export default function TaskDetailSidebar({
           </div>
           <div>
             <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Priority</h3>
-            <span className={`inline-block px-2 py-1 text-xs rounded-full ${
-              task.priority === 'HIGH'
+            <span className={`inline-block px-2 py-1 text-xs rounded-full ${task.priority === 'HIGH'
                 ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
                 : task.priority === 'MEDIUM'
-                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200'
-                : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
-            }`}>
+                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200'
+                  : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
+              }`}>
               {task.priority}
             </span>
           </div>
@@ -540,7 +637,7 @@ export default function TaskDetailSidebar({
             </div>
           )}
 
-        {/* ✅ QA Feedback Button - FIXED FOR NEW WORKFLOW */}
+        {/* QA Feedback Button */}
         {session?.user?.role === 'QA' &&
           task.qa_assigned_to === session?.user?.id && (
             <div className="mb-6">
@@ -564,7 +661,7 @@ export default function TaskDetailSidebar({
             </div>
           )}
 
-        {/* Help Button - Only for non-admin users */}
+        {/* Help Button */}
         {!['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER', 'QA'].includes(session?.user?.role || '') && (
           <div className="mb-6">
             <button
@@ -593,7 +690,7 @@ export default function TaskDetailSidebar({
           </div>
         )}
 
-        {/* Enhanced Timer Controls Section */}
+        {/* Timer Controls */}
         {task.status !== 'APPROVED' &&
           task.assigned_to === session?.user?.id &&
           timerInfo?.status !== 'USED' && (
@@ -604,7 +701,7 @@ export default function TaskDetailSidebar({
                 </svg>
                 Time Tracking
               </h3>
-              
+
               {/* Timer Status Display */}
               {timerInfo?.status === 'RUNNING' && (
                 <div className="mb-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-700">
@@ -640,7 +737,7 @@ export default function TaskDetailSidebar({
                   )}
                 </div>
               )}
-              
+
               {timerInfo?.status === 'WARNING' && (
                 <div className="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-300 dark:border-yellow-700">
                   <div className="flex items-center justify-between mb-2">
@@ -670,7 +767,7 @@ export default function TaskDetailSidebar({
                   )}
                 </div>
               )}
-              
+
               {timerInfo?.status === 'EXCEEDED' && (
                 <div className="mb-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-300 dark:border-red-700 animate-pulse">
                   <div className="flex items-center justify-between mb-2">
@@ -708,7 +805,7 @@ export default function TaskDetailSidebar({
                   </div>
                 </div>
               )}
-              
+
               {/* Timer Control Buttons */}
               <div className="flex space-x-2">
                 {timerInfo?.status === 'AVAILABLE' ? (
@@ -780,11 +877,10 @@ Duration: ${minutes}m ${seconds}s`);
                         alert('Network error');
                       }
                     }}
-                    className={`flex-1 px-4 py-2 text-sm text-white rounded-lg transition-colors font-medium shadow-sm flex items-center justify-center ${
-                      timerInfo?.status === 'EXCEEDED'
+                    className={`flex-1 px-4 py-2 text-sm text-white rounded-lg transition-colors font-medium shadow-sm flex items-center justify-center ${timerInfo?.status === 'EXCEEDED'
                         ? 'bg-red-600 hover:bg-red-700 animate-pulse'
                         : 'bg-orange-600 hover:bg-orange-700'
-                    }`}
+                      }`}
                     type="button"
                   >
                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -795,14 +891,14 @@ Duration: ${minutes}m ${seconds}s`);
                   </button>
                 ) : null}
               </div>
-              
+
               {/* Timer Used Message */}
               {timerInfo?.status === 'APPROVED' && (
                 <p className="mt-3 text-xs text-center text-gray-500 dark:text-gray-400 italic">
                   ✓ Timer has been completed for this task
                 </p>
               )}
-              
+
               {/* Estimated Time Info */}
               {task.estimated_minutes && timerInfo?.status === 'AVAILABLE' && (
                 <div className="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs text-blue-700 dark:text-blue-300">
@@ -899,15 +995,14 @@ Duration: ${minutes}m ${seconds}s`);
                 return (
                   <div
                     key={note.id}
-                    className={`p-3 rounded-lg ${
-                      note.note_type === 'APPROVAL'
+                    className={`p-3 rounded-lg ${note.note_type === 'APPROVAL'
                         ? 'bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500'
                         : note.note_type === 'REJECTION'
-                        ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500'
-                        : note.note_type === 'FEEDBACK_IMAGE'
-                        ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500'
-                        : 'bg-gray-50 dark:bg-gray-700/50'
-                    }`}
+                          ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500'
+                          : note.note_type === 'FEEDBACK_IMAGE'
+                            ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500'
+                            : 'bg-gray-50 dark:bg-gray-700/50'
+                      }`}
                   >
                     {note.note_type !== 'FEEDBACK_IMAGE' && (
                       <p className="text-sm text-gray-800 dark:text-gray-200">{note.note}</p>
@@ -1016,7 +1111,6 @@ Duration: ${minutes}m ${seconds}s`);
               <p className="text-sm text-gray-500 dark:text-gray-400">No activity yet</p>
             )}
           </div>
-          
           <div className="mt-3 flex">
             <input
               type="text"
