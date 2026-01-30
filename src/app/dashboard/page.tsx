@@ -344,6 +344,7 @@ export default function KanbanBoard() {
     }
   }, [session]);
 
+  // In your fetchTasks function
   const fetchTasks = useCallback(async () => {
     try {
       let url = '/api/tasks';
@@ -363,14 +364,8 @@ export default function KanbanBoard() {
         REWORK: { ...initialColumns.REWORK, taskIds: [] }
       };
 
-      // --- UPDATED: Accept optional QA assignment fields ---
-      data.tasks.forEach((task: any) => {
-        tasksMap[task.id] = {
-          ...task,
-          qa_assigned_to: task.qa_assigned_to ?? null,
-          qa_assigned_to_name: task.qa_assigned_to_name ?? null,
-          qa_assigned_at: task.qa_assigned_at ?? null,
-        };
+      data.tasks.forEach((task: Task) => {
+        tasksMap[task.id] = task;
         if (cols[task.status]) {
           cols[task.status].taskIds.push(task.id);
         }
@@ -378,6 +373,22 @@ export default function KanbanBoard() {
 
       setTasks(tasksMap);
       setColumns(cols);
+
+      // ✅ Check for auto-started timers
+      const taskIds = Object.keys(tasksMap);
+      taskIds.forEach(taskId => {
+        const task = tasksMap[taskId];
+        // If task is assigned to non-QA and in IN_PROGRESS, check if timer should be running
+        // Use 'assigned_to_role' only if it exists on type Task, otherwise fallback to 'assigned_to'
+        const assignedRole = (task as any).assigned_to_role || task.assigned_to || '';
+        if (
+          task.status === 'IN_PROGRESS' &&
+          task.assigned_to &&
+          !['QA', 'ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER'].includes(assignedRole)
+        ) {
+          // Timer will be handled by the existing timer polling logic
+        }
+      });
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
     }

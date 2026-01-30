@@ -483,10 +483,10 @@ export default function TaskDetailSidebar({
                   }
                 }}
                 className={`font-semibold text-lg text-gray-900 dark:text-white cursor-text ${(session?.user?.role === 'ADMIN' ||
-                    session?.user?.role === 'PROJECT_MANAGER' ||
-                    session?.user?.role === 'TEAM_LEADER')
-                    ? 'hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded'
-                    : ''
+                  session?.user?.role === 'PROJECT_MANAGER' ||
+                  session?.user?.role === 'TEAM_LEADER')
+                  ? 'hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded'
+                  : ''
                   }`}
               >
                 {task.title}
@@ -534,10 +534,10 @@ export default function TaskDetailSidebar({
                   }
                 }}
                 className={`text-gray-600 dark:text-gray-300 mt-2 cursor-text min-h-[20px] ${(session?.user?.role === 'ADMIN' ||
-                    session?.user?.role === 'PROJECT_MANAGER' ||
-                    session?.user?.role === 'TEAM_LEADER')
-                    ? 'hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded'
-                    : ''
+                  session?.user?.role === 'PROJECT_MANAGER' ||
+                  session?.user?.role === 'TEAM_LEADER')
+                  ? 'hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded'
+                  : ''
                   }`}
               >
                 {task.description || 'No description'}
@@ -590,10 +590,10 @@ export default function TaskDetailSidebar({
           <div>
             <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Priority</h3>
             <span className={`inline-block px-2 py-1 text-xs rounded-full ${task.priority === 'HIGH'
-                ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
-                : task.priority === 'MEDIUM'
-                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200'
-                  : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
+              ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
+              : task.priority === 'MEDIUM'
+                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200'
+                : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
               }`}>
               {task.priority}
             </span>
@@ -691,6 +691,7 @@ export default function TaskDetailSidebar({
         )}
 
         {/* Timer Controls */}
+        {/* Enhanced Timer Controls Section */}
         {task.status !== 'APPROVED' &&
           task.assigned_to === session?.user?.id &&
           timerInfo?.status !== 'USED' && (
@@ -703,12 +704,31 @@ export default function TaskDetailSidebar({
               </h3>
 
               {/* Timer Status Display */}
-              {timerInfo?.status === 'RUNNING' && (
-                <div className="mb-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-700">
+              {(timerInfo?.status === 'RUNNING' || timerInfo?.status === 'WARNING' || timerInfo?.status === 'EXCEEDED') && (
+                <div className={`mb-3 p-3 rounded-lg border ${timerInfo?.status === 'RUNNING' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700' :
+                    timerInfo?.status === 'WARNING' ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-700' :
+                      'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700'
+                  }`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center text-sm font-medium text-green-700 dark:text-green-300">
-                      <div className="w-3 h-3 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-                      Timer Running
+                    <div className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {timerInfo?.status === 'RUNNING' && (
+                        <>
+                          <div className="w-3 h-3 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                          Timer Running
+                        </>
+                      )}
+                      {timerInfo?.status === 'WARNING' && (
+                        <>
+                          <div className="w-3 h-3 bg-yellow-500 rounded-full mr-2 animate-pulse"></div>
+                          ⚠️ Approaching Limit
+                        </>
+                      )}
+                      {timerInfo?.status === 'EXCEEDED' && (
+                        <>
+                          <div className="w-3 h-3 bg-red-500 rounded-full mr-2 animate-ping"></div>
+                          ⏰ Time Exceeded!
+                        </>
+                      )}
                     </div>
                     {timerInfo.is_rework && (
                       <span className="text-xs px-2 py-0.5 bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 rounded-full">
@@ -716,15 +736,17 @@ export default function TaskDetailSidebar({
                       </span>
                     )}
                   </div>
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                    {Math.floor((timerInfo.elapsed_minutes || 0) / 60)}h {(timerInfo.elapsed_minutes || 0) % 60}m
+                  <div className="text-2xl font-bold text-gray-800 dark:text-white">
+                    {Math.floor((timerInfo?.elapsed_minutes || 0) / 60)}h {(timerInfo?.elapsed_minutes || 0) % 60}m
                   </div>
                   {task.estimated_minutes && (
                     <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
                       Estimated: {task.estimated_minutes} minutes
                       <div className="mt-1 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                         <div
-                          className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                          className={`h-2 rounded-full transition-all duration-300 ${timerInfo?.status === 'RUNNING' ? 'bg-green-500' :
+                              timerInfo?.status === 'WARNING' ? 'bg-yellow-500' : 'bg-red-500'
+                            }`}
                           style={{
                             width: `${Math.min(
                               ((timerInfo?.elapsed_minutes || 0) / (task.estimated_minutes || 1)) * 100,
@@ -735,169 +757,66 @@ export default function TaskDetailSidebar({
                       </div>
                     </div>
                   )}
-                </div>
-              )}
 
-              {timerInfo?.status === 'WARNING' && (
-                <div className="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-300 dark:border-yellow-700">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center text-sm font-medium text-yellow-700 dark:text-yellow-300">
-                      <div className="w-3 h-3 bg-yellow-500 rounded-full mr-2 animate-pulse"></div>
-                      ⚠️ Approaching Limit
-                    </div>
-                  </div>
-                  <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
-                    {Math.floor((timerInfo.elapsed_minutes || 0) / 60)}h {(timerInfo.elapsed_minutes || 0) % 60}m
-                  </div>
-                  {task.estimated_minutes && (
-                    <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-                      Estimated: {task.estimated_minutes} minutes
-                      <div className="mt-1 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                        <div
-                          className="bg-yellow-500 h-2 rounded-full transition-all duration-300"
-                          style={{
-                            width: `${Math.min(
-                              ((timerInfo?.elapsed_minutes || 0) / (task.estimated_minutes || 1)) * 100,
-                              100
-                            )}%`,
-                          }}
-                        ></div>
-                      </div>
+                  {/* Time exceeded notification */}
+                  {timerInfo?.status === 'EXCEEDED' && (
+                    <div className="mt-2 p-2 bg-red-100 dark:bg-red-900/40 rounded text-xs text-red-800 dark:text-red-200">
+                      <strong>⚠️ Notifications sent to:</strong>
+                      <ul className="mt-1 ml-4 list-disc">
+                        <li>Team Leaders</li>
+                        <li>Project Managers</li>
+                        <li>Administrators</li>
+                      </ul>
                     </div>
                   )}
                 </div>
               )}
 
-              {timerInfo?.status === 'EXCEEDED' && (
-                <div className="mb-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-300 dark:border-red-700 animate-pulse">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center text-sm font-medium text-red-700 dark:text-red-300">
-                      <div className="w-3 h-3 bg-red-500 rounded-full mr-2 animate-ping"></div>
-                      ⏰ Time Exceeded!
-                    </div>
-                  </div>
-                  <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                    {Math.floor((timerInfo.elapsed_minutes || 0) / 60)}h {(timerInfo.elapsed_minutes || 0) % 60}m
-                  </div>
-                  {task.estimated_minutes && (
-                    <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-                      Estimated: {task.estimated_minutes} minutes
-                      <div className="mt-1 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                        <div
-                          className="bg-red-500 h-2 rounded-full transition-all duration-300"
-                          style={{
-                            width: `${Math.min(
-                              ((timerInfo?.elapsed_minutes || 0) / (task.estimated_minutes || 1)) * 100,
-                              100
-                            )}%`,
-                          }}
-                        ></div>
-                      </div>
-                    </div>
-                  )}
-                  <div className="mt-2 p-2 bg-red-100 dark:bg-red-900/40 rounded text-xs text-red-800 dark:text-red-200">
-                    <strong>⚠️ Notifications sent to:</strong>
-                    <ul className="mt-1 ml-4 list-disc">
-                      <li>Team Leaders</li>
-                      <li>Project Managers</li>
-                      <li>Administrators</li>
-                    </ul>
-                  </div>
-                </div>
-              )}
-
-              {/* Timer Control Buttons */}
-              <div className="flex space-x-2">
-                {timerInfo?.status === 'AVAILABLE' ? (
-                  <button
-                    onClick={async () => {
-                      try {
-                        const res = await fetch('/api/timers', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ task_id: task.id }),
-                        });
-                        if (res.ok) {
-                          const timerRes = await fetch(`/api/timers/${task.id}/current`);
-                          if (timerRes.ok) {
-                            const data = await timerRes.json();
-                            setTimerInfo({
-                              status: data.status,
-                              elapsed_minutes: data.timer?.elapsed_minutes || 0,
-                              is_rework: data.timer?.is_rework,
-                            });
-                          }
+              {/* Timer Control Buttons - Only Stop button for auto-started timers */}
+              {(timerInfo?.status === 'RUNNING' || timerInfo?.status === 'WARNING' || timerInfo?.status === 'EXCEEDED') && (
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`/api/timers/${task.id}/stop`, { method: 'POST' });
+                      if (res.ok) {
+                        const data = await res.json();
+                        const minutes = Math.floor(data.duration_seconds / 60);
+                        const seconds = data.duration_seconds % 60;
+                        if (data.timeExceeded) {
+                          alert(`⚠️ Timer stopped!\nDuration: ${minutes}m ${seconds}s\nEstimated: ${data.estimated_minutes} minutes\n⏰ TIME LIMIT EXCEEDED!`);
                         } else {
-                          const data = await res.json();
-                          alert(data.error || 'Failed to start timer');
+                          alert(`✅ Timer stopped!\nDuration: ${minutes}m ${seconds}s`);
                         }
-                      } catch {
-                        alert('Network error');
+                        setTimerInfo({ status: 'USED' });
+                      } else {
+                        const data = await res.json();
+                        alert(data.error || 'Failed to stop timer');
                       }
-                    }}
-                    className="flex-1 px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-sm flex items-center justify-center"
-                    type="button"
-                  >
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Start Timer
-                  </button>
-                ) : (timerInfo?.status === 'RUNNING' || timerInfo?.status === 'WARNING' || timerInfo?.status === 'EXCEEDED') ? (
-                  <button
-                    onClick={async () => {
-                      try {
-                        const res = await fetch(`/api/timers/${task.id}/stop`, { method: 'POST' });
-                        if (res.ok) {
-                          const data = await res.json();
-                          const minutes = Math.floor(data.duration_seconds / 60);
-                          const seconds = data.duration_seconds % 60;
-                          if (data.timeExceeded) {
-                            alert(
-                              `⚠️ Timer stopped!
-Duration: ${minutes}m ${seconds}s
-Estimated: ${data.estimated_minutes} minutes
-⏰ TIME LIMIT EXCEEDED!
-Notifications have been sent to:
-• Team Leaders
-• Project Managers
-• Administrators`
-                            );
-                          } else {
-                            alert(`✅ Timer stopped!
-Duration: ${minutes}m ${seconds}s`);
-                          }
-                          setTimerInfo({ status: 'USED' });
-                        } else {
-                          const data = await res.json();
-                          alert(data.error || 'Failed to stop timer');
-                        }
-                      } catch {
-                        alert('Network error');
-                      }
-                    }}
-                    className={`flex-1 px-4 py-2 text-sm text-white rounded-lg transition-colors font-medium shadow-sm flex items-center justify-center ${timerInfo?.status === 'EXCEEDED'
-                        ? 'bg-red-600 hover:bg-red-700 animate-pulse'
-                        : 'bg-orange-600 hover:bg-orange-700'
-                      }`}
-                    type="button"
-                  >
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-                    </svg>
-                    Stop Timer
-                  </button>
-                ) : null}
-              </div>
+                    } catch (err) {
+                      alert('Network error');
+                    }
+                  }}
+                  className={`w-full px-4 py-2 text-sm text-white rounded-lg transition-colors font-medium shadow-sm flex items-center justify-center ${timerInfo?.status === 'EXCEEDED'
+                      ? 'bg-red-600 hover:bg-red-700 animate-pulse'
+                      : 'bg-orange-600 hover:bg-orange-700'
+                    }`}
+                  type="button"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                  </svg>
+                  Stop Timer
+                </button>
+              )}
 
               {/* Timer Used Message */}
               {timerInfo?.status === 'APPROVED' && (
                 <p className="mt-3 text-xs text-center text-gray-500 dark:text-gray-400 italic">
-                  ✓ Timer has been completed for this task
+                  ✓ Timer completed
                 </p>
               )}
+
 
               {/* Estimated Time Info */}
               {task.estimated_minutes && timerInfo?.status === 'AVAILABLE' && (
@@ -996,12 +915,12 @@ Duration: ${minutes}m ${seconds}s`);
                   <div
                     key={note.id}
                     className={`p-3 rounded-lg ${note.note_type === 'APPROVAL'
-                        ? 'bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500'
-                        : note.note_type === 'REJECTION'
-                          ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500'
-                          : note.note_type === 'FEEDBACK_IMAGE'
-                            ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500'
-                            : 'bg-gray-50 dark:bg-gray-700/50'
+                      ? 'bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500'
+                      : note.note_type === 'REJECTION'
+                        ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500'
+                        : note.note_type === 'FEEDBACK_IMAGE'
+                          ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500'
+                          : 'bg-gray-50 dark:bg-gray-700/50'
                       }`}
                   >
                     {note.note_type !== 'FEEDBACK_IMAGE' && (

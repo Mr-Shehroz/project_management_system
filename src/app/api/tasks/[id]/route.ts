@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { db } from '@/db';
-import { tasks, users, projects, notifications } from '@/db/schema';
+import { tasks, users, projects, notifications, taskTimers } from '@/db/schema'; // Import taskTimers
 import { eq, and, or } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -264,6 +264,32 @@ export async function PUT(
   // If no valid fields to update
   if (Object.keys(updateFields).length === 0) {
     return Response.json({ error: 'No valid fields to update' }, { status: 400 });
+  }
+
+  // ---- Insert auto-start timer logic here, if assigned_to changes and is not a QA ----
+  if (
+    updateFields.assigned_to &&
+    updateFields.assigned_to !== currentTask.assigned_to
+  ) {
+    const assignedUserArr = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, updateFields.assigned_to))
+      .limit(1);
+
+    // ✅ Auto-start timer if assigned to non-QA user
+    if (assignedUserArr.length > 0 && assignedUserArr[0].role !== 'QA') {
+      try {
+        await db.insert(taskTimers).values({
+          id: uuidv4(),
+          task_id: id,
+          start_time: new Date(),
+          is_rework: currentTask.status === 'REWORK',
+        });
+      } catch (timerErr) {
+        console.error('Auto-timer start failed:', timerErr);
+      }
+    }
   }
 
   try {

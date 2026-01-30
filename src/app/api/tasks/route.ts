@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
 import { db } from '@/db';
-import { tasks, users, notifications } from '@/db/schema';
+import { tasks, users, notifications, taskTimers } from '@/db/schema'; // <--- added taskTimers
 import { v4 as uuidv4 } from 'uuid';
 import { eq, and, or, inArray } from 'drizzle-orm';
 
@@ -253,6 +253,36 @@ export async function POST(req: NextRequest) {
       is_read: false,
       created_at: new Date(),
     });
+
+    // ✅ Auto-start timer for non-QA assignments (after successful creation)
+    // To do this: Only if assigned_to is set and the assignee's role is not 'QA'
+
+    // We need to fetch the assigned user's role first
+    let assignedUserRole: string | undefined = undefined;
+    if (assigned_to) {
+      const assigneeArr = await db
+        .select({ role: users.role })
+        .from(users)
+        .where(eq(users.id, assigned_to))
+        .limit(1);
+
+      if (assigneeArr && assigneeArr[0]) {
+        assignedUserRole = assigneeArr[0].role;
+      }
+    }
+
+    if (assigned_to && assignedUserRole && assignedUserRole !== 'QA') {
+      try {
+        await db.insert(taskTimers).values({
+          id: uuidv4(),
+          task_id: taskId,
+          start_time: new Date(),
+          is_rework: false,
+        });
+      } catch (timerErr) {
+        console.error('Auto-timer start failed:', timerErr);
+      }
+    }
 
     console.log('Task created successfully:', taskId);
     return Response.json({ success: true, taskId }, { status: 201 });
