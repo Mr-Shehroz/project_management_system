@@ -70,7 +70,7 @@ export async function PUT(
           })
           .where(eq(tasks.id, id));
         return Response.json({ success: true }, { status: 200 });
-      } 
+      }
       // ---- Custom: When marking as 'READY_FOR_ASSIGNMENT' send notifications ----
       else if (status === 'READY_FOR_ASSIGNMENT') {
         // Get the relevant team_type (from request body or use existing)
@@ -87,18 +87,16 @@ export async function PUT(
         const assignUsers = await db
           .select({ id: users.id })
           .from(users)
-          .where(
-            or(
-              eq(users.role, 'ADMIN'),
-              eq(users.role, 'PROJECT_MANAGER'),
-              and(
-                eq(users.role, 'TEAM_LEADER'),
-                eq(users.team_type, team_type)
-              )
+          .where(or(
+            eq(users.role, 'ADMIN'),
+            eq(users.role, 'PROJECT_MANAGER'),
+            and(
+              eq(users.role, 'TEAM_LEADER'),
+              eq(users.team_type, team_type)
             )
-          );
+          ));
 
-        // Insert notifications
+        // Create notifications
         const notificationPromises = assignUsers.map(user =>
           db.insert(notifications).values({
             id: uuidv4(),
@@ -283,20 +281,20 @@ export async function PUT(
         updateFields.status === 'READY_FOR_ASSIGNMENT') &&
       updateFields.team_type // should be present from full update
     ) {
+      // Get all users who should receive READY_FOR_ASSIGNMENT notifications
       const assignUsers = await db
         .select({ id: users.id })
         .from(users)
-        .where(
-          or(
-            eq(users.role, 'ADMIN'),
-            eq(users.role, 'PROJECT_MANAGER'),
-            and(
-              eq(users.role, 'TEAM_LEADER'),
-              eq(users.team_type, updateFields.team_type)
-            )
+        .where(or(
+          eq(users.role, 'ADMIN'),
+          eq(users.role, 'PROJECT_MANAGER'),
+          and(
+            eq(users.role, 'TEAM_LEADER'),
+            eq(users.team_type, updateFields.team_type)
           )
-        );
+        ));
 
+      // Create notifications
       const notificationPromises = assignUsers.map(user =>
         db.insert(notifications).values({
           id: uuidv4(),

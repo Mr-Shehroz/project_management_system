@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
 import { db } from '@/db';
-import { notifications, tasks, projects, users } from '@/db/schema';
+import { notifications as notificationsTable, tasks, projects, users } from '@/db/schema';
 import { eq, and, desc, count } from 'drizzle-orm';
 
 // GET notifications for current user
@@ -17,31 +17,31 @@ export async function GET() {
     // Get notifications with task title, project name, and requester name for help requests
     const notificationList = await db
       .select({
-        id: notifications.id,
-        user_id: notifications.user_id,
-        task_id: notifications.task_id,
-        type: notifications.type,
-        is_read: notifications.is_read,
-        created_at: notifications.created_at,
+        id: notificationsTable.id,
+        user_id: notificationsTable.user_id,
+        task_id: notificationsTable.task_id,
+        type: notificationsTable.type,
+        is_read: notificationsTable.is_read,
+        created_at: notificationsTable.created_at,
         task_title: tasks.title,
         project_name: projects.name,
         requester_name: users.name,
       })
-      .from(notifications)
-      .innerJoin(tasks, eq(notifications.task_id, tasks.id))
+      .from(notificationsTable)
+      .innerJoin(tasks, eq(notificationsTable.task_id, tasks.id))
       .innerJoin(projects, eq(tasks.project_id, projects.id))
       .leftJoin(users, eq(tasks.assigned_to, users.id)) // Use leftJoin for cases where assigned_to might be null
-      .where(eq(notifications.user_id, session.user.id))
-      .orderBy(desc(notifications.created_at));
+      .where(eq(notificationsTable.user_id, session.user.id))
+      .orderBy(desc(notificationsTable.created_at));
 
     // Count unread notifications
     const unreadCountRows = await db
       .select({ count: count() })
-      .from(notifications)
+      .from(notificationsTable)
       .where(
         and(
-          eq(notifications.user_id, session.user.id),
-          eq(notifications.is_read, false)
+          eq(notificationsTable.user_id, session.user.id),
+          eq(notificationsTable.is_read, false)
         )
       );
     const unreadCount = unreadCountRows?.[0]?.count ?? 0;
@@ -71,12 +71,12 @@ export async function POST(req: NextRequest) {
 
   try {
     await db
-      .update(notifications)
+      .update(notificationsTable)
       .set({ is_read: true })
       .where(
         and(
-          eq(notifications.id, notificationId),
-          eq(notifications.user_id, session.user.id)
+          eq(notificationsTable.id, notificationId),
+          eq(notificationsTable.user_id, session.user.id)
         )
       );
 

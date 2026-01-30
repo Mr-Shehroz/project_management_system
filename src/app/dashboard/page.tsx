@@ -463,6 +463,7 @@ export default function KanbanBoard() {
   useEffect(() => {
     if (!session) return;
 
+    // In your pollNotifications function:
     const pollNotifications = async () => {
       try {
         const res = await fetch('/api/notifications');
@@ -496,7 +497,7 @@ export default function KanbanBoard() {
                 title = '🆘 Help Requested!';
                 message = `User "${note.requester_name}" needs help with task "${note.task_title}"`;
                 break;
-              case 'READY_FOR_ASSIGNMENT':
+              case 'READY_FOR_ASSIGNMENT': // ✅ ADD THIS
                 title = '✅ Ready for Assignment!';
                 message = `Task "${note.task_title}" in project "${note.project_name}" is ready for assignment`;
                 break;
