@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { toast } from 'react-hot-toast';
 import CreateTaskModal from './create-task-modal';
 import QAReviewModal from './qa-review-modal';
 import TaskDetailSidebar from './task-detail-sidebar';
@@ -19,10 +20,10 @@ type Task = {
   description: string | null;
   status: string;
   assigned_to: string;
+  assigned_to_name?: string;
   project_id: string;
   priority: string;
   estimated_minutes?: number | null;
-  // Added for QA Assignment status
   qa_assigned_to?: string | null;
   qa_assigned_to_name?: string | null;
   qa_assigned_at?: string | null;
@@ -74,6 +75,8 @@ export default function KanbanBoard() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [notificationBannerDismissed, setNotificationBannerDismissed] = useState(false);
+  const [showNotificationTooltip, setShowNotificationTooltip] = useState(false);
 
   // Project details state
   const [projectDetails, setProjectDetails] = useState<{
@@ -110,6 +113,14 @@ export default function KanbanBoard() {
   useEffect(() => {
     audioRef.current = new Audio('/notification.mp3');
     audioRef.current.volume = 0.7;
+  }, []);
+
+  // Load dismissed state from localStorage
+  useEffect(() => {
+    const dismissed = localStorage.getItem('notificationBannerDismissed');
+    if (dismissed === 'true') {
+      setNotificationBannerDismissed(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -168,36 +179,18 @@ export default function KanbanBoard() {
     return () => window.removeEventListener('edit-task', handleEditTask as EventListener);
   }, []);
 
-  // Request notification permission on mount
+  // Request notification permission on mount - silently check
   useEffect(() => {
     if (!session) return;
 
-    const checkAndRequestPermission = async () => {
+    const checkPermission = () => {
       if (!('Notification' in window)) {
-        console.error('This browser does not support desktop notifications');
         return;
       }
-
       setNotificationPermission(Notification.permission);
-
-      if (Notification.permission === 'default') {
-        const permission = await Notification.requestPermission();
-        setNotificationPermission(permission);
-
-        if (permission === 'granted') {
-          showDesktopNotification(
-            'Notifications Enabled!',
-            'You will now receive task notifications even when this tab is inactive.',
-            undefined,
-            false
-          );
-        } else if (permission === 'denied') {
-          alert('Please enable notifications in your browser settings to receive task alerts.');
-        }
-      }
     };
 
-    checkAndRequestPermission();
+    checkPermission();
   }, [session]);
 
   // Play notification sound
@@ -284,6 +277,33 @@ export default function KanbanBoard() {
       setSelectedTaskId(notification.taskId);
     }
     removeNotification(notification.id);
+  };
+
+  // Handle requesting notification permission
+  const handleRequestPermission = async () => {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission === 'granted') {
+        showDesktopNotification(
+          'Notifications Enabled!',
+          'You will now receive real-time alerts.',
+          undefined,
+          true
+        );
+        // Auto-dismiss the banner after granting permission
+        setNotificationBannerDismissed(true);
+        localStorage.setItem('notificationBannerDismissed', 'true');
+      } else if (permission === 'denied') {
+        toast.error('Please enable notifications in your browser settings.');
+      }
+    }
+  };
+
+  // Handle dismissing the banner
+  const handleDismissBanner = () => {
+    setNotificationBannerDismissed(true);
+    localStorage.setItem('notificationBannerDismissed', 'true');
   };
 
   // Fetch projects for non-QA users
@@ -378,8 +398,6 @@ export default function KanbanBoard() {
       const taskIds = Object.keys(tasksMap);
       taskIds.forEach(taskId => {
         const task = tasksMap[taskId];
-        // If task is assigned to non-QA and in IN_PROGRESS, check if timer should be running
-        // Use 'assigned_to_role' only if it exists on type Task, otherwise fallback to 'assigned_to'
         const assignedRole = (task as any).assigned_to_role || task.assigned_to || '';
         if (
           task.status === 'IN_PROGRESS' &&
@@ -474,7 +492,6 @@ export default function KanbanBoard() {
   useEffect(() => {
     if (!session) return;
 
-    // In your pollNotifications function:
     const pollNotifications = async () => {
       try {
         const res = await fetch('/api/notifications');
@@ -508,7 +525,7 @@ export default function KanbanBoard() {
                 title = '🆘 Help Requested!';
                 message = `User "${note.requester_name}" needs help with task "${note.task_title}"`;
                 break;
-              case 'READY_FOR_ASSIGNMENT': // ✅ ADD THIS
+              case 'READY_FOR_ASSIGNMENT':
                 title = '✅ Ready for Assignment!';
                 message = `Task "${note.task_title}" in project "${note.project_name}" is ready for assignment`;
                 break;
@@ -544,7 +561,7 @@ export default function KanbanBoard() {
     pollNotifications();
     const interval = setInterval(() => {
       pollNotifications();
-    }, 5000); // Poll every 5 seconds for faster real-time notifications
+    }, 5000);
 
     return () => {
       clearInterval(interval);
@@ -573,6 +590,22 @@ export default function KanbanBoard() {
     }
   }, [session, projectId, fetchTasks]);
 
+  // Real-time updates: Listen for refresh-tasks event
+  useEffect(() => {
+    const handleRefreshTasks = () => {
+      fetchTasks();
+      if (session?.user?.role === 'QA') {
+        fetchQaProjects();
+      } else {
+        fetchProjects();
+        fetchTeamMembers();
+      }
+    };
+
+    window.addEventListener('refresh-tasks', handleRefreshTasks);
+    return () => window.removeEventListener('refresh-tasks', handleRefreshTasks);
+  }, [session, fetchTasks, fetchProjects, fetchTeamMembers, fetchQaProjects]);
+
   const handleStartTimer = async (taskId: string) => {
     try {
       const res = await fetch('/api/timers', {
@@ -582,8 +615,9 @@ export default function KanbanBoard() {
       });
       if (!res.ok) {
         const data = await res.json();
-        alert(data.error || 'Failed to start timer');
+        toast.error(data.error || 'Failed to start timer');
       } else {
+        toast.success('Timer started');
         setActiveTimers(prev => ({
           ...prev,
           [taskId]: {
@@ -598,7 +632,7 @@ export default function KanbanBoard() {
         }));
       }
     } catch (err) {
-      alert('Network error');
+      toast.error('Network error');
     }
   };
 
@@ -607,16 +641,18 @@ export default function KanbanBoard() {
       const res = await fetch(`/api/timers/${taskId}/stop`, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json();
-        alert(data.error || 'Failed to stop timer');
+        toast.error(data.error || 'Failed to stop timer');
       } else {
         const data = await res.json();
         const minutes = Math.floor(data.duration_seconds / 60);
         const seconds = data.duration_seconds % 60;
 
         if (data.timeExceeded) {
-          alert(`⚠️ Timer stopped!\n\nDuration: ${minutes}m ${seconds}s\nEstimated: ${data.estimated_minutes} minutes\n\n⏰ TIME LIMIT EXCEEDED!\nNotifications sent to Team Leaders, Project Managers, and Admins.`);
+          toast.error(`Timer stopped! Duration: ${minutes}m ${seconds}s | Estimated: ${data.estimated_minutes} minutes | TIME LIMIT EXCEEDED! Notifications sent to Team Leaders, Project Managers, and Admins.`, {
+            duration: 6000,
+          });
         } else {
-          alert(`✅ Timer stopped!\n\nDuration: ${minutes}m ${seconds}s`);
+          toast.success(`Timer stopped! Duration: ${minutes}m ${seconds}s`);
         }
 
         setActiveTimers(prev => {
@@ -631,7 +667,7 @@ export default function KanbanBoard() {
         }));
       }
     } catch (err) {
-      alert('Network error');
+      toast.error('Network error');
     }
   };
 
@@ -684,13 +720,13 @@ export default function KanbanBoard() {
     }
 
     if (oldStatus === 'WAITING_FOR_QA' && session.user.role !== 'QA') {
-      alert('Only QA can review this task');
+      toast.error('Only QA can review this task');
       fetchTasks();
       return;
     }
 
     if (newStatus === 'WAITING_FOR_QA' && task.assigned_to !== session.user.id) {
-      alert('Only the assigned member can submit for QA');
+      toast.error('Only the assigned member can submit for QA');
       fetchTasks();
       return;
     }
@@ -715,28 +751,15 @@ export default function KanbanBoard() {
 
       if (!res.ok) {
         const data = await res.json();
-        alert(data.error || 'Failed to update task');
+        toast.error(data.error || 'Failed to update task');
         fetchTasks();
       } else {
+        toast.success(`Task moved to ${columns[newStatus]?.title || newStatus}`);
         fetchTasks();
       }
     } catch (err) {
+      toast.error('Network error');
       fetchTasks();
-    }
-  };
-
-  const handleRequestPermission = async () => {
-    if ('Notification' in window) {
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
-      if (permission === 'granted') {
-        showDesktopNotification(
-          'Success!',
-          'Desktop notifications are now enabled.',
-          undefined,
-          true
-        );
-      }
     }
   };
 
@@ -761,76 +784,213 @@ export default function KanbanBoard() {
 
   const currentProject = projects.find(p => p.id === projectId);
 
+  // Determine if we should show the notification banner
+  const shouldShowNotificationBanner = 
+    !notificationBannerDismissed && 
+    notificationPermission !== 'granted';
+
   return (
-    <div className="p-4 sm:p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-          {currentProject ? currentProject.name : 'All Projects'}
-        </h1>
+    <div className="w-full max-w-full overflow-x-hidden">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white">
+              {currentProject ? currentProject.name : 'All Projects'}
+            </h1>
+            {currentProject && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Manage tasks and track progress
+              </p>
+            )}
+          </div>
+
+          {/* Notification Bell Icon with Tooltip */}
+          {notificationPermission !== 'granted' && (
+            <div className="relative">
+              <button
+                onClick={handleRequestPermission}
+                onMouseEnter={() => setShowNotificationTooltip(true)}
+                onMouseLeave={() => setShowNotificationTooltip(false)}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                aria-label="Enable notifications"
+              >
+                <svg
+                  className="w-5 h-5 text-gray-600 dark:text-gray-300"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                  />
+                  {notificationPermission === 'denied' && (
+                    <line
+                      x1="4"
+                      y1="4"
+                      x2="20"
+                      y2="20"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                    />
+                  )}
+                </svg>
+                {notificationPermission === 'default' && (
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></span>
+                )}
+              </button>
+
+              {/* Tooltip */}
+              {showNotificationTooltip && (
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 w-64 p-3 bg-gray-900 dark:bg-gray-800 text-white text-sm rounded-lg shadow-xl z-50">
+                  <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-8 border-r-8 border-b-8 border-l-transparent border-r-transparent border-b-gray-900 dark:border-b-gray-800"></div>
+                  {notificationPermission === 'denied' ? (
+                    <>
+                      <p className="font-medium mb-1">Notifications Blocked</p>
+                      <p className="text-xs opacity-90">
+                        Enable in your browser settings to receive real-time task alerts
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium mb-1">Enable Notifications</p>
+                      <p className="text-xs opacity-90">
+                        Get instant alerts for task assignments and time warnings
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {(session?.user?.role === 'ADMIN' ||
           session?.user?.role === 'PROJECT_MANAGER' ||
           session?.user?.role === 'TEAM_LEADER') && (
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+              className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-all font-medium shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
             >
               + Add Task
             </button>
           )}
       </div>
 
-      {/* Notification Permission Banner */}
-      {notificationPermission !== 'granted' && (
-        <div className={`mb-4 p-4 rounded-lg border ${notificationPermission === 'denied'
-          ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-          : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-          }`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={`font-medium ${notificationPermission === 'denied'
-                ? 'text-red-800 dark:text-red-200'
-                : 'text-yellow-800 dark:text-yellow-200'
-                }`}>
-                {notificationPermission === 'denied'
-                  ? '⚠️ Desktop notifications are blocked'
-                  : '🔔 Enable desktop notifications'}
-              </p>
-              <p className={`text-sm mt-1 ${notificationPermission === 'denied'
-                ? 'text-red-600 dark:text-red-300'
-                : 'text-yellow-700 dark:text-yellow-300'
-                }`}>
-                {notificationPermission === 'denied'
-                  ? 'Please enable notifications in your browser settings to receive real-time alerts for task assignments and time limit warnings.'
-                  : 'Get instant alerts for new tasks and when time limits are exceeded - even when this tab is inactive.'}
-              </p>
+      {/* Compact Dismissible Notification Banner */}
+      {shouldShowNotificationBanner && (
+        <div className="mb-4 p-3 rounded-lg border bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-1">
+              <div className="flex-shrink-0">
+                <svg
+                  className="w-5 h-5 text-blue-600 dark:text-blue-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                  />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                  {notificationPermission === 'denied'
+                    ? 'Notifications are blocked'
+                    : 'Stay updated with real-time alerts'}
+                </p>
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
+                  {notificationPermission === 'denied'
+                    ? 'Enable in browser settings for task notifications'
+                    : 'Enable desktop notifications for instant updates'}
+                </p>
+              </div>
             </div>
-            {notificationPermission === 'default' && (
+            <div className="flex items-center gap-2">
+              {notificationPermission === 'default' && (
+                <button
+                  onClick={handleRequestPermission}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors text-xs font-medium whitespace-nowrap"
+                >
+                  Enable
+                </button>
+              )}
               <button
-                onClick={handleRequestPermission}
-                className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors text-sm font-medium whitespace-nowrap ml-4"
+                onClick={handleDismissBanner}
+                className="p-1 hover:bg-blue-100 dark:hover:bg-blue-800 rounded transition-colors"
+                aria-label="Dismiss"
               >
-                Enable Now
+                <svg
+                  className="w-4 h-4 text-blue-600 dark:text-blue-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
               </button>
-            )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Success message when notifications are enabled */}
-      {notificationPermission === 'granted' && (
-        <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-          <p className="text-sm text-green-800 dark:text-green-200">
-            ✅ Desktop notifications enabled - You'll receive instant alerts for task assignments and time warnings
-          </p>
-        </div>
-      )}
-
+      {/* Responsive Kanban Columns */}
       <DragDropContext onDragEnd={onDragEnd}>
-        <div className="flex items-start overflow-x-auto pb-4 -mx-2 px-2">
+        <div
+          className="
+            flex
+            items-start
+            gap-4
+            overflow-x-auto
+            pb-4
+            scrollbar-thin
+            scrollbar-thumb-gray-300
+            scrollbar-track-gray-100
+            dark:scrollbar-thumb-gray-600
+            dark:scrollbar-track-gray-800
+            w-full
+            max-w-full
+            relative
+            "
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
           {/* Project Details Panel */}
-          <div className="min-w-[280px] sm:min-w-[300px] bg-gray-100 dark:bg-gray-800 rounded-lg p-4 mr-4">
-            <h2 className="font-bold mb-4 text-gray-800 dark:text-white">Project Details</h2>
+          <div
+            className="
+              min-w-[250px] 
+              max-w-[320px]
+              w-[90vw]
+              sm:w-[300px] 
+              md:w-[280px]
+              md:min-w-[260px]
+              lg:w-[320px] 
+              xl:w-[340px]
+              bg-white dark:bg-gray-800 
+              rounded-xl p-4 shadow-lg border 
+              border-gray-200 dark:border-gray-700 
+              flex-shrink-0
+              flex-grow-0
+            "
+            style={{
+              flex: '0 0 auto',
+            }}
+          >
+            <h2 className="font-bold mb-4 text-gray-800 dark:text-white flex items-center gap-2">
+              <div className="w-2 h-2 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full"></div>
+              Project Details
+            </h2>
             {projectDetailsLoading ? (
               <p className="text-gray-500 dark:text-gray-400">Loading project details...</p>
             ) : projectDetails ? (
@@ -879,7 +1039,6 @@ export default function KanbanBoard() {
           {/* Kanban Columns */}
           {Object.values(columns)
             .filter(column => {
-              // ✅ Hide WAITING_FOR_QA column for QA role
               if (session?.user?.role === 'QA' && column.id === 'WAITING_FOR_QA') {
                 return false;
               }
@@ -891,9 +1050,27 @@ export default function KanbanBoard() {
                   <div
                     ref={provided.innerRef}
                     {...provided.droppableProps}
-                    className="min-w-[280px] sm:min-w-[300px] bg-gray-100 dark:bg-gray-800 rounded-lg p-4 mr-4"
+                    className={`
+                      bg-white dark:bg-gray-800 rounded-xl p-4 shadow-lg border border-gray-200 dark:border-gray-700 flex-shrink-0 flex-grow-0
+                      min-w-[250px]
+                      sm:min-w-[260px]
+                      md:min-w-[280px]
+                      md:max-w-[320px]
+                      w-[90vw]
+                      sm:w-[300px]
+                      md:w-[280px]
+                      lg:w-[320px]
+                      xl:w-[340px]
+                      mx-0
+                    `}
+                    style={{
+                      flex: '0 0 auto',
+                    }}
                   >
-                    <h2 className="font-bold mb-4 text-gray-800 dark:text-white">{column.title}</h2>
+                    <h2 className="font-bold mb-4 text-gray-800 dark:text-white flex items-center gap-2">
+                      <div className="w-2 h-2 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full"></div>
+                      {column.title}
+                    </h2>
                     <div className="space-y-3">
                       {column.taskIds.map((taskId, index) => {
                         const task = tasks[taskId];
@@ -906,11 +1083,9 @@ export default function KanbanBoard() {
                                 {...provided.draggableProps}
                                 {...provided.dragHandleProps}
                                 onClick={() => {
-                                  // existing click handler logic
                                   const clickedTask = tasks[taskId];
                                   if (!clickedTask) return;
 
-                                  // Check if QA was already assigned
                                   const isQaAlreadyAssigned = !!clickedTask.qa_assigned_at;
 
                                   if (
@@ -918,7 +1093,6 @@ export default function KanbanBoard() {
                                     session?.user?.role === 'PROJECT_MANAGER' ||
                                     session?.user?.role === 'TEAM_LEADER'
                                   ) {
-                                    // Only show QA Assign Modal if QA hasn't been assigned yet
                                     if (clickedTask.status === 'WAITING_FOR_QA' && !isQaAlreadyAssigned) {
                                       setShowQAAssignModal(clickedTask.id);
                                     } else {
@@ -930,9 +1104,22 @@ export default function KanbanBoard() {
                                     setSelectedTaskId(clickedTask.id);
                                   }
                                 }}
-                                className="bg-white dark:bg-gray-700 p-4 rounded shadow-sm border border-gray-200 dark:border-gray-600 cursor-pointer hover:shadow-md transition-shadow"
+                                className="bg-white dark:bg-gray-700 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-600 cursor-pointer hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-600 transition-all"
                               >
-                                <h3 className="font-semibold text-gray-800 dark:text-white">{task.title}</h3>
+                                {/* Task Title */}
+                                <h3 className="font-semibold text-gray-800 dark:text-white mb-2 line-clamp-2">{task.title}</h3>
+
+                                {/* Assignee Badge */}
+                                {task.assigned_to_name && (
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <div className="w-6 h-6 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-semibold">
+                                      {task.assigned_to_name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                                      {task.assigned_to_name}
+                                    </span>
+                                  </div>
+                                )}
 
                                 {task.description && (
                                   <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 line-clamp-2">
@@ -940,7 +1127,7 @@ export default function KanbanBoard() {
                                   </p>
                                 )}
 
-                                {/* ✅ QA Assignment Status */}
+                                {/* QA Assignment Status */}
                                 {task.qa_assigned_to && (
                                   <div className="mt-1 flex items-center text-xs text-blue-600 dark:text-blue-400">
                                     <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
@@ -967,7 +1154,6 @@ export default function KanbanBoard() {
                                   </div>
                                 )}
 
-                                {/* ... rest of the card ... */}
                                 {task.status !== 'APPROVED' && timerStatus[task.id] === 'WARNING' && (
                                   <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-300 dark:border-yellow-700">
                                     <div className="flex items-center text-xs text-yellow-700 dark:text-yellow-300">
@@ -996,9 +1182,17 @@ export default function KanbanBoard() {
                                   </div>
                                 )}
 
-                                <div className="mt-2 flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                                  <span>Priority: {task.priority}</span>
-                                  <span>{task.assigned_to}</span>
+                                {/* Priority Badge */}
+                                <div className="mt-2 flex items-center justify-between">
+                                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                                    task.priority === 'HIGH'
+                                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                                      : task.priority === 'MEDIUM'
+                                        ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
+                                        : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                                  }`}>
+                                    {task.priority}
+                                  </span>
                                 </div>
 
                                 {/* Timer Controls */}

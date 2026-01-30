@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import { toast } from 'react-hot-toast';
 
 type User = {
   id: string;
@@ -95,7 +96,7 @@ export default function QAReviewModal({
 
       setFeedbackItems(prev => [...prev, ...newFeedbackItems]);
     } catch (err) {
-      alert('Failed to upload pasted images');
+      toast.error('Failed to upload pasted images');
     } finally {
       setUploadingImages(false);
     }
@@ -156,7 +157,7 @@ export default function QAReviewModal({
 
       setFeedbackItems(prev => [...prev, ...newFeedbackItems]);
     } catch (err) {
-      alert('Failed to upload images');
+      toast.error('Failed to upload images');
     } finally {
       setUploadingImages(false);
     }
@@ -178,7 +179,7 @@ export default function QAReviewModal({
 
   const handleAssignQA = async () => {
     if (!selectedQA) {
-      alert('Please select a QA reviewer');
+      toast.error('Please select a QA reviewer');
       return;
     }
 
@@ -191,15 +192,16 @@ export default function QAReviewModal({
       });
 
       if (res.ok) {
+        toast.success('QA reviewer assigned successfully!');
         onClose();
         // Refresh tasks
         window.dispatchEvent(new CustomEvent('refresh-tasks'));
       } else {
         const data = await res.json();
-        alert(data.error || 'Failed to assign QA');
+        toast.error(data.error || 'Failed to assign QA');
       }
     } catch (err) {
-      alert('Network error');
+      toast.error('Network error');
     } finally {
       setIsAssigningQA(false);
     }
@@ -229,15 +231,16 @@ export default function QAReviewModal({
       });
 
       if (res.ok) {
+        toast.success(`Task ${status === 'APPROVED' ? 'approved' : 'sent for rework'} successfully!`);
         onClose();
         // Refresh tasks after review
         window.dispatchEvent(new CustomEvent('refresh-tasks'));
       } else {
         const data = await res.json();
-        alert(data.error || 'Failed to submit review');
+        toast.error(data.error || 'Failed to submit review');
       }
     } catch (err) {
-      alert('Network error');
+      toast.error('Network error');
     } finally {
       setLoading(false);
     }
@@ -251,11 +254,33 @@ export default function QAReviewModal({
   const canReviewQA = session?.user?.role === 'QA';
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-        <h2 className="text-lg font-bold mb-4 text-gray-800 dark:text-white">
-          QA Feedback for "{taskTitle}"
-        </h2>
+    <>
+      {/* Soft backdrop */}
+      <div
+        className="fixed inset-0 z-40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-5 flex items-center justify-between">
+            <h2 className="text-lg font-bold text-white">
+              QA Feedback for "{taskTitle}"
+            </h2>
+            <button
+              onClick={onClose}
+              className="text-white/80 hover:text-white transition"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          
+          {/* Body */}
+          <div className="p-6 overflow-y-auto flex-1">
 
         {canAssignQA && (
           <div className="space-y-4">
@@ -266,7 +291,7 @@ export default function QAReviewModal({
               <select
                 value={selectedQA}
                 onChange={(e) => setSelectedQA(e.target.value)}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
               >
                 <option value="">Select QA Reviewer</option>
                 {availableQAs.map((qa) => (
@@ -281,7 +306,7 @@ export default function QAReviewModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
               >
                 Cancel
               </button>
@@ -289,7 +314,7 @@ export default function QAReviewModal({
                 type="button"
                 onClick={handleAssignQA}
                 disabled={isAssigningQA || !selectedQA}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                className="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 shadow-lg transition-all font-medium"
               >
                 {isAssigningQA ? 'Assigning...' : 'Assign QA'}
               </button>
@@ -331,7 +356,7 @@ export default function QAReviewModal({
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Provide overall feedback..."
-                className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 rows={2}
               />
             </div>
@@ -346,7 +371,7 @@ export default function QAReviewModal({
                 multiple
                 onChange={handleImageUpload}
                 accept="image/*"
-                className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 disabled={uploadingImages}
               />
               {uploadingImages && <p className="text-sm text-gray-600 mt-1">Uploading...</p>}
@@ -368,7 +393,7 @@ export default function QAReviewModal({
                         value={item.note}
                         onChange={(e) => updateFeedbackNote(item.id, e.target.value)}
                         placeholder={`Add comment for image ${index + 1}...`}
-                        className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                         rows={2}
                       />
                       <button
@@ -388,21 +413,23 @@ export default function QAReviewModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                className="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 shadow-lg transition-all font-medium"
               >
                 {loading ? 'Submitting...' : 'Submit Review'}
               </button>
             </div>
           </form>
         )}
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

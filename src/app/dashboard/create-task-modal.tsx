@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import { toast } from 'react-hot-toast';
 import { Loader2, X, ClipboardList } from 'lucide-react';
 
 type User = {
@@ -118,6 +119,7 @@ export default function CreateTaskModal({
       });
 
       if (res.ok) {
+        toast.success('Task created successfully!');
         window.dispatchEvent(new CustomEvent('refresh-tasks'));
         onClose();
       } else {

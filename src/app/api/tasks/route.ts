@@ -82,12 +82,20 @@ export async function GET(request: NextRequest) {
       userTasks = await db.select().from(tasks).where(whereCondition);
     }
 
-    // Parse files JSON if exists, and include QA assignment info
+    // Fetch assignee names for all tasks
+    const assigneeIds = [...new Set(userTasks.map(t => t.assigned_to).filter(Boolean))];
+    const assignees = assigneeIds.length > 0 
+      ? await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, assigneeIds))
+      : [];
+    const assigneeMap = new Map(assignees.map(u => [u.id, u.name]));
+
+    // Parse files JSON if exists, and include QA assignment info and assignee names
     const tasksWithFiles = userTasks.map(task => {
       return {
         ...task,
         files: task.files ? JSON.parse(task.files) : [],
-        qa_assigned_to: task.qa_assigned_to, // ✅ Include this
+        qa_assigned_to: task.qa_assigned_to,
+        assigned_to_name: assigneeMap.get(task.assigned_to) || 'Unknown',
       };
     });
 

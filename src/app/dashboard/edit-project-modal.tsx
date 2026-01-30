@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { toast } from 'react-hot-toast';
 import { Loader2, X, Pencil } from 'lucide-react';
 
 type Project = {
@@ -44,6 +45,8 @@ export default function EditProjectModal({
       });
 
       if (res.ok) {
+        toast.success('Project updated successfully!');
+        window.dispatchEvent(new CustomEvent('refresh-tasks'));
         onUpdated();
         onClose();
       } else {

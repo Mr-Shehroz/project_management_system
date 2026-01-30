@@ -2,6 +2,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { toast } from 'react-hot-toast';
 
 // Corrected and enhanced types
 type TaskFile = {
@@ -91,7 +92,7 @@ export default function TaskDetailSidebar({
   const [noteLoading, setNoteLoading] = useState(false);
   const { data: session } = useSession();
 
-  // ✅ Inline edit state - now properly managed
+  // Inline edit state
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -175,7 +176,7 @@ export default function TaskDetailSidebar({
     return () => { ignore = true; };
   }, [taskId]);
 
-  // ✅ Initialize edit states when task loads
+  // Initialize edit states when task loads
   useEffect(() => {
     if (task) {
       setEditTitle(task.title);
@@ -183,10 +184,10 @@ export default function TaskDetailSidebar({
     }
   }, [task]);
 
-  // ✅ Handle Title Save - FIXED
+  // Handle Title Save
   const handleSaveTitle = async () => {
     if (!editTitle.trim()) {
-      alert('Title cannot be empty');
+      toast.error('Title cannot be empty');
       return;
     }
 
@@ -198,19 +199,26 @@ export default function TaskDetailSidebar({
       });
 
       if (res.ok) {
-        // ✅ Update local state immediately
         setTask(prev => prev ? { ...prev, title: editTitle.trim() } : null);
         setIsEditingTitle(false);
+        toast.success('Title updated');
+        window.dispatchEvent(new CustomEvent('refresh-tasks'));
       } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to update title');
+        // Defensive: response may not be json if error
+        let data: any = {};
+        try {
+          data = await res.json();
+        } catch {
+          data = {};
+        }
+        toast.error(data.error || 'Failed to update title');
       }
     } catch {
-      alert('Network error');
+      toast.error('Network error');
     }
   };
 
-  // ✅ Handle Description Save - FIXED
+  // Handle Description Save
   const handleSaveDescription = async () => {
     try {
       const res = await fetch(`/api/tasks/${task?.id}`, {
@@ -220,25 +228,31 @@ export default function TaskDetailSidebar({
       });
 
       if (res.ok) {
-        // ✅ Update local state immediately
         setTask(prev => prev ? { ...prev, description: editDescription } : null);
         setIsEditingDescription(false);
+        toast.success('Description updated');
+        window.dispatchEvent(new CustomEvent('refresh-tasks'));
       } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to update description');
+        let data: any = {};
+        try {
+          data = await res.json();
+        } catch {
+          data = {};
+        }
+        toast.error(data.error || 'Failed to update description');
       }
     } catch {
-      alert('Network error');
+      toast.error('Network error');
     }
   };
 
-  // ✅ Handle Cancel Title Edit
+  // Handle Cancel Title Edit
   const handleCancelTitleEdit = () => {
     setEditTitle(task?.title || '');
     setIsEditingTitle(false);
   };
 
-  // ✅ Handle Cancel Description Edit
+  // Handle Cancel Description Edit
   const handleCancelDescriptionEdit = () => {
     setEditDescription(task?.description || '');
     setIsEditingDescription(false);
@@ -270,10 +284,10 @@ export default function TaskDetailSidebar({
           const error = await res.json();
           errorMsg = error?.error || errorMsg;
         } catch { }
-        alert(errorMsg);
+        toast.error(errorMsg);
       }
     } catch {
-      alert('Network error');
+      toast.error('Network error');
     } finally {
       setNoteLoading(false);
     }
@@ -337,12 +351,18 @@ export default function TaskDetailSidebar({
           setNotes(Array.isArray(notesData.notes) ? notesData.notes : []);
         }
         setEditingFeedback(null);
+        toast.success('Feedback updated');
       } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to update feedback');
+        let data: any = {};
+        try {
+          data = await res.json();
+        } catch {
+          data = {};
+        }
+        toast.error(data.error || 'Failed to update feedback');
       }
     } catch {
-      alert('Network error');
+      toast.error('Network error');
     }
   };
 
@@ -363,20 +383,20 @@ export default function TaskDetailSidebar({
         setEditingFeedback((prev) =>
           prev
             ? {
-              ...prev,
-              image: {
-                url: data.url,
-                public_id: data.public_id,
-                original_name: data.original_name,
-                format: data.format,
-                bytes: data.bytes,
-              },
-            }
+                ...prev,
+                image: {
+                  url: data.url,
+                  public_id: data.public_id,
+                  original_name: data.original_name,
+                  format: data.format,
+                  bytes: data.bytes,
+                },
+              }
             : null
         );
       }
     } catch {
-      alert('Failed to upload image');
+      toast.error('Failed to upload image');
     } finally {
       setUploadingFeedbackImage(false);
     }
@@ -412,6 +432,7 @@ export default function TaskDetailSidebar({
             <button
               onClick={onClose}
               className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+              type="button"
             >
               Close
             </button>
@@ -425,283 +446,332 @@ export default function TaskDetailSidebar({
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div
-        className="fixed inset-0 bg-black bg-opacity-50"
+        className="fixed inset-0 bg-black/20 backdrop-blur-sm"
         onClick={onClose}
         aria-label="Close sidebar overlay"
         tabIndex={-1}
         role="button"
-      />
-      <div className="w-full max-w-md bg-white dark:bg-gray-800 p-6 border-l border-gray-200 dark:border-gray-700 relative z-50 overflow-y-auto max-h-screen">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-2xl font-bold"
-          aria-label="Close details"
-          type="button"
-        >
-          &times;
-        </button>
+      ></div>
+      <div className="w-full max-w-lg bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 relative z-50 overflow-y-auto max-h-screen shadow-2xl">
+        {/* Header */}
+        <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Task Details</h2>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+            aria-label="Close details"
+            type="button"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
-        {/* Project Info */}
-        <div className="mb-6 p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 rounded-xl">
-          {/* ✅ Title - Inline Edit */}
-          <div className="mb-3">
-            {isEditingTitle ? (
-              <div className="flex flex-col space-y-2">
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  autoFocus
-                />
-                <div className="flex space-x-2">
-                  <button
-                    onClick={handleSaveTitle}
-                    className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
-                    type="button"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={handleCancelTitleEdit}
-                    className="px-3 py-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded text-sm hover:bg-gray-400 dark:hover:bg-gray-500"
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div
-                onDoubleClick={() => {
-                  if (
-                    session?.user?.role === 'ADMIN' ||
-                    session?.user?.role === 'PROJECT_MANAGER' ||
-                    session?.user?.role === 'TEAM_LEADER'
-                  ) {
-                    setIsEditingTitle(true);
-                  }
-                }}
-                className={`font-semibold text-lg text-gray-900 dark:text-white cursor-text ${(session?.user?.role === 'ADMIN' ||
-                  session?.user?.role === 'PROJECT_MANAGER' ||
-                  session?.user?.role === 'TEAM_LEADER')
-                  ? 'hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded'
-                  : ''
-                  }`}
-              >
-                {task.title}
-              </div>
-            )}
-          </div>
-
-          {/* ✅ Description - Inline Edit */}
-          <div>
-            {isEditingDescription ? (
-              <div className="flex flex-col space-y-2">
-                <textarea
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  autoFocus
-                />
-                <div className="flex space-x-2">
-                  <button
-                    onClick={handleSaveDescription}
-                    className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
-                    type="button"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={handleCancelDescriptionEdit}
-                    className="px-3 py-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded text-sm hover:bg-gray-400 dark:hover:bg-gray-500"
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div
-                onDoubleClick={() => {
-                  if (
-                    session?.user?.role === 'ADMIN' ||
-                    session?.user?.role === 'PROJECT_MANAGER' ||
-                    session?.user?.role === 'TEAM_LEADER'
-                  ) {
-                    setIsEditingDescription(true);
-                  }
-                }}
-                className={`text-gray-600 dark:text-gray-300 mt-2 cursor-text min-h-[20px] ${(session?.user?.role === 'ADMIN' ||
-                  session?.user?.role === 'PROJECT_MANAGER' ||
-                  session?.user?.role === 'TEAM_LEADER')
-                  ? 'hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded'
-                  : ''
-                  }`}
-              >
-                {task.description || 'No description'}
-              </div>
-            )}
-          </div>
-
-          {projectDetails && (
-            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Project Details</h4>
-              <div className="space-y-2">
-                <div>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Name</span>
-                  <p className="text-gray-900 dark:text-gray-100 font-medium">{projectDetails.name}</p>
-                </div>
-                {projectDetails.client_name && (
-                  <div>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Client</span>
-                    <p className="text-gray-900 dark:text-gray-100">{projectDetails.client_name}</p>
-                  </div>
-                )}
-                {projectDetails.website_url && (
-                  <div>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Website</span>
-                    <a
-                      href={projectDetails.website_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 dark:text-blue-400 hover:underline block"
+        {/* Content */}
+        <div className="p-6 space-y-6">
+          {/* Title Section */}
+          <div className="space-y-3">
+            {/* Title */}
+            <div>
+              {isEditingTitle ? (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleSaveTitle}
+                      className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg text-sm hover:from-blue-700 hover:to-purple-700 transition-all"
+                      type="button"
                     >
-                      {projectDetails.website_url}
-                    </a>
+                      Save
+                    </button>
+                    <button
+                      onClick={handleCancelTitleEdit}
+                      className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                      type="button"
+                    >
+                      Cancel
+                    </button>
                   </div>
-                )}
+                </div>
+              ) : (
+                <div
+                  onDoubleClick={() => {
+                    if (
+                      session?.user?.role === 'ADMIN' ||
+                      session?.user?.role === 'PROJECT_MANAGER' ||
+                      session?.user?.role === 'TEAM_LEADER'
+                    ) {
+                      setIsEditingTitle(true);
+                    }
+                  }}
+                  className={`text-xl font-bold text-gray-900 dark:text-white cursor-text leading-tight ${(session?.user?.role === 'ADMIN' ||
+                    session?.user?.role === 'PROJECT_MANAGER' ||
+                    session?.user?.role === 'TEAM_LEADER')
+                    ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50 p-2 rounded-lg transition-colors'
+                    : ''
+                    }`}
+                >
+                  {task.title}
+                </div>
+              )}
+            </div>
+
+            {/* Description */}
+            <div>
+              {isEditingDescription ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                    autoFocus
+                    placeholder="Add a description..."
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleSaveDescription}
+                      className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg text-sm hover:from-blue-700 hover:to-purple-700 transition-all"
+                      type="button"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={handleCancelDescriptionEdit}
+                      className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  onDoubleClick={() => {
+                    if (
+                      session?.user?.role === 'ADMIN' ||
+                      session?.user?.role === 'PROJECT_MANAGER' ||
+                      session?.user?.role === 'TEAM_LEADER'
+                    ) {
+                      setIsEditingDescription(true);
+                    }
+                  }}
+                  className={`text-sm text-gray-600 dark:text-gray-400 cursor-text min-h-[60px] ${(session?.user?.role === 'ADMIN' ||
+                    session?.user?.role === 'PROJECT_MANAGER' ||
+                    session?.user?.role === 'TEAM_LEADER')
+                    ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50 p-2 rounded-lg transition-colors'
+                    : ''
+                    }`}
+                >
+                  {task.description || <span className="text-gray-400 dark:text-gray-500 italic">No description</span>}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Details Section */}
+          <div className="space-y-4">
+            {/* Assigned To */}
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-5 h-5 mt-0.5">
+                <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Assigned To</div>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
+                    {task.assigned_to_name?.charAt(0).toUpperCase() || '?'}
+                  </div>
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">{task.assigned_to_name}</span>
+                </div>
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Task Details Grid */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div>
-            <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Assigned To</h3>
-            <p className="text-gray-900 dark:text-gray-100 font-medium">{task.assigned_to_name}</p>
-          </div>
-          <div>
-            <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Assigned By</h3>
-            <p className="text-gray-900 dark:text-gray-100 font-medium">{task.assigned_by_name}</p>
-          </div>
-          <div>
-            <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Priority</h3>
-            <span className={`inline-block px-2 py-1 text-xs rounded-full ${task.priority === 'HIGH'
-              ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
-              : task.priority === 'MEDIUM'
-                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200'
-                : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
-              }`}>
-              {task.priority}
-            </span>
-          </div>
-          <div>
-            <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Status</h3>
-            <span className="inline-block px-2 py-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 rounded-full">
-              {task.status}
-            </span>
-          </div>
-        </div>
-
-        {/* Edit Task Button */}
-        {(session?.user?.role === 'ADMIN' ||
-          (!!task.assigned_by_id && session?.user?.id === task.assigned_by_id)) && (
-            <div className="mb-6">
-              <button
-                onClick={() => {
-                  const event = new CustomEvent('edit-task', {
-                    detail: {
-                      id: task.id,
-                      project_id: task.project_id ?? '',
-                      team_type: task.team_type ?? '',
-                      title: task.title,
-                      description: task.description,
-                      priority: task.priority,
-                      assigned_to: task.assigned_to ?? '',
-                      qa_assigned_to: task.qa_assigned_to ?? '',
-                      estimated_minutes: task.estimated_minutes ?? null,
-                      status: task.status,
-                      files: task.files ?? [],
-                    },
-                  });
-                  window.dispatchEvent(event);
-                }}
-                className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg text-sm font-medium transition-colors"
-                type="button"
-              >
-                Edit Task
-              </button>
-            </div>
-          )}
-
-        {/* QA Feedback Button */}
-        {session?.user?.role === 'QA' &&
-          task.qa_assigned_to === session?.user?.id && (
-            <div className="mb-6">
-              <button
-                onClick={() => {
-                  window.dispatchEvent(
-                    new CustomEvent('qa-feedback', {
-                      detail: {
-                        taskId: task.id,
-                        taskTitle: task.title,
-                        taskDescription: task.description,
-                      },
-                    })
-                  );
-                }}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
-                type="button"
-              >
-                📝 Give Feedback
-              </button>
-            </div>
-          )}
-
-        {/* Help Button */}
-        {!['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER', 'QA'].includes(session?.user?.role || '') && (
-          <div className="mb-6">
-            <button
-              onClick={async () => {
-                try {
-                  const res = await fetch('/api/help-request', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ task_id: task.id }),
-                  });
-                  if (res.ok) {
-                    alert('✅ Help request sent! Admin, Project Managers, and Team Leaders have been notified.');
-                  } else {
-                    const data = await res.json();
-                    alert(data.error || 'Failed to send help request');
-                  }
-                } catch (err) {
-                  alert('Network error');
-                }
-              }}
-              className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors"
-              type="button"
-            >
-              🆘 Request Help
-            </button>
-          </div>
-        )}
-
-        {/* Timer Controls */}
-        {/* Enhanced Timer Controls Section */}
-        {task.status !== 'APPROVED' &&
-          task.assigned_to === session?.user?.id &&
-          timerInfo?.status !== 'USED' && (
-            <div className="mb-6 p-4 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 rounded-xl border border-gray-200 dark:border-gray-600">
-              <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-3 flex items-center">
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            {/* Assigned By */}
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-5 h-5 mt-0.5">
+                <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                Time Tracking
-              </h3>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Assigned By</div>
+                <div className="text-sm font-medium text-gray-900 dark:text-white">{task.assigned_by_name}</div>
+              </div>
+            </div>
+
+            {/* Status */}
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-5 h-5 mt-0.5">
+                <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Status</div>
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
+                  {task.status.replace(/_/g, ' ')}
+                </span>
+              </div>
+            </div>
+
+            {/* Priority */}
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-5 h-5 mt-0.5">
+                <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Priority</div>
+                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                  task.priority === 'HIGH'
+                    ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
+                    : task.priority === 'MEDIUM'
+                      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200'
+                      : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
+                }`}>
+                  {task.priority}
+                </span>
+              </div>
+            </div>
+
+            {/* Project */}
+            {projectDetails && (
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 w-5 h-5 mt-0.5">
+                  <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Project</div>
+                  <div className="text-sm font-medium text-gray-900 dark:text-white">{projectDetails.name}</div>
+                  {projectDetails.client_name && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{projectDetails.client_name}</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="space-y-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+            {/* Edit Task Button */}
+            {(session?.user?.role === 'ADMIN' ||
+              (!!task.assigned_by_id && session?.user?.id === task.assigned_by_id)) && (
+                <button
+                  onClick={() => {
+                    const event = new CustomEvent('edit-task', {
+                      detail: {
+                        id: task.id,
+                        project_id: task.project_id ?? '',
+                        team_type: task.team_type ?? '',
+                        title: task.title,
+                        description: task.description,
+                        priority: task.priority,
+                        assigned_to: task.assigned_to ?? '',
+                        qa_assigned_to: task.qa_assigned_to ?? '',
+                        estimated_minutes: task.estimated_minutes ?? null,
+                        status: task.status,
+                        files: task.files ?? [],
+                      },
+                    });
+                    window.dispatchEvent(event);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white rounded-lg text-sm font-medium transition-all shadow-sm hover:shadow-md"
+                  type="button"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Edit Task
+                </button>
+              )}
+
+            {/* QA Feedback Button */}
+            {session?.user?.role === 'QA' &&
+              task.qa_assigned_to === session?.user?.id && (
+                <button
+                  onClick={() => {
+                    window.dispatchEvent(
+                      new CustomEvent('qa-feedback', {
+                        detail: {
+                          taskId: task.id,
+                          taskTitle: task.title,
+                          taskDescription: task.description,
+                        },
+                      })
+                    );
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg text-sm font-medium transition-all shadow-sm hover:shadow-md"
+                  type="button"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Give Feedback
+                </button>
+              )}
+
+            {/* Help Button */}
+            {!['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER', 'QA'].includes(session?.user?.role || '') && (
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/help-request', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ task_id: task.id }),
+                    });
+                    if (res.ok) {
+                      toast.success('Help request sent! Admin, Project Managers, and Team Leaders have been notified.');
+                    } else {
+                      let data: any = {};
+                      try {
+                        data = await res.json();
+                      } catch {
+                        data = {};
+                      }
+                      toast.error(data.error || 'Failed to send help request');
+                    }
+                  } catch (err) {
+                    toast.error('Network error');
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg text-sm font-medium transition-all shadow-sm hover:shadow-md"
+                type="button"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                Request Help
+              </button>
+            )}
+          </div>
+
+          {/* Timer Section */}
+          {task.status !== 'APPROVED' &&
+            task.assigned_to === session?.user?.id &&
+            timerInfo?.status !== 'USED' && (
+              <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-5 h-5 mt-0.5">
+                    <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Time Tracking</div>
 
               {/* Timer Status Display */}
               {(timerInfo?.status === 'RUNNING' || timerInfo?.status === 'WARNING' || timerInfo?.status === 'EXCEEDED') && (
@@ -783,17 +853,27 @@ export default function TaskDetailSidebar({
                         const minutes = Math.floor(data.duration_seconds / 60);
                         const seconds = data.duration_seconds % 60;
                         if (data.timeExceeded) {
-                          alert(`⚠️ Timer stopped!\nDuration: ${minutes}m ${seconds}s\nEstimated: ${data.estimated_minutes} minutes\n⏰ TIME LIMIT EXCEEDED!`);
+                          toast.error(
+                            `Timer stopped! Duration: ${minutes}m ${seconds}s | Estimated: ${data.estimated_minutes} minutes | TIME LIMIT EXCEEDED!`,
+                            {
+                              duration: 6000,
+                            }
+                          );
                         } else {
-                          alert(`✅ Timer stopped!\nDuration: ${minutes}m ${seconds}s`);
+                          toast.success(`Timer stopped! Duration: ${minutes}m ${seconds}s`);
                         }
                         setTimerInfo({ status: 'USED' });
                       } else {
-                        const data = await res.json();
-                        alert(data.error || 'Failed to stop timer');
+                        let data: any = {};
+                        try {
+                          data = await res.json();
+                        } catch {
+                          data = {};
+                        }
+                        toast.error(data.error || 'Failed to stop timer');
                       }
                     } catch (err) {
-                      alert('Network error');
+                      toast.error('Network error');
                     }
                   }}
                   className={`w-full px-4 py-2 text-sm text-white rounded-lg transition-colors font-medium shadow-sm flex items-center justify-center ${timerInfo?.status === 'EXCEEDED'
@@ -824,163 +904,206 @@ export default function TaskDetailSidebar({
                   <strong>Estimated time:</strong> {task.estimated_minutes} minutes
                 </div>
               )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+          {/* Attachments Section */}
+          {task.files && Array.isArray(task.files) && task.files.length > 0 && (
+            <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Attachments ({task.files.length})
+                </h3>
+              </div>
+              <div className="space-y-2">
+                {task.files.map((file, index) => {
+                  if (
+                    !file ||
+                    typeof file !== 'object' ||
+                    typeof file.url !== 'string' ||
+                    typeof file.resource_type !== 'string'
+                  )
+                    return null;
+                  const isImage = file.resource_type === 'image';
+                  return (
+                    <div
+                      key={file.public_id || index}
+                      className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0">
+                          {isImage ? (
+                            <img
+                              src={file.url}
+                              alt={file.original_name || `Attachment ${index + 1}`}
+                              className="w-16 h-16 object-cover rounded border border-gray-300 dark:border-gray-600"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center text-2xl">
+                              {getFileIcon(file.original_name || `File ${index + 1}`)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full">
+                              {getFileTypeLabel(file.original_name || `File ${index + 1}`)}
+                            </span>
+                            {typeof file.bytes === 'number' && !isNaN(file.bytes) && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                {(file.bytes / 1024).toFixed(1)} KB
+                              </span>
+                            )}
+                          </div>
+                          <p
+                            className="text-sm text-gray-800 dark:text-gray-200 font-medium mt-1 truncate"
+                            title={file.original_name || `File ${index + 1}`}
+                          >
+                            {file.original_name || `File ${index + 1}`}
+                          </p>
+                          {isImage && (
+                            <img
+                              src={file.url}
+                              alt={file.original_name || `Attachment ${index + 1}`}
+                              className="mt-2 w-full rounded border border-gray-300 dark:border-gray-600"
+                              style={{ maxHeight: '200px' }}
+                            />
+                          )}
+                          <a
+                            href={`/api/download?public_id=${encodeURIComponent(
+                              file.public_id || ''
+                            )}&resource_type=${encodeURIComponent(
+                              file.resource_type || ''
+                            )}&filename=${encodeURIComponent(file.original_name || `File ${index + 1}`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center mt-2 text-blue-600 dark:text-blue-400 hover:underline text-xs"
+                          >
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                              />
+                            </svg>
+                            Download {file.original_name || `File ${index + 1}`}
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
-        {/* Attachments */}
-        {task.files && Array.isArray(task.files) && task.files.length > 0 && (
-          <div className="mb-6">
-            <h3 className="text-sm font-medium text-gray-800 dark:text-white mb-3">
-              Attachments ({task.files.length})
-            </h3>
-            <div className="space-y-2">
-              {task.files.map((file, index) => {
-                if (!file || typeof file !== 'object' || typeof file.url !== 'string' || typeof file.resource_type !== 'string')
-                  return null;
-                const isImage = file.resource_type === 'image';
-                return (
-                  <div key={file.public_id || index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <div className="flex items-start space-x-3">
-                      <div className="flex-shrink-0">
-                        {isImage ? (
-                          <img
-                            src={file.url}
-                            alt={file.original_name || `Attachment ${index + 1}`}
-                            className="w-16 h-16 object-cover rounded border border-gray-300 dark:border-gray-600"
-                          />
-                        ) : (
-                          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center text-2xl">
-                            {getFileIcon(file.original_name || `File ${index + 1}`)}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full">
-                            {getFileTypeLabel(file.original_name || `File ${index + 1}`)}
-                          </span>
-                          {typeof file.bytes === 'number' && !isNaN(file.bytes) && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                              {(file.bytes / 1024).toFixed(1)} KB
-                            </span>
-                          )}
-                        </div>
-                        <p
-                          className="text-sm text-gray-800 dark:text-gray-200 font-medium mt-1 truncate"
-                          title={file.original_name || `File ${index + 1}`}
-                        >
-                          {file.original_name || `File ${index + 1}`}
-                        </p>
-                        {isImage && (
-                          <img
-                            src={file.url}
-                            alt={file.original_name || `Attachment ${index + 1}`}
-                            className="mt-2 w-full rounded border border-gray-300 dark:border-gray-600"
-                            style={{ maxHeight: '200px' }}
-                          />
-                        )}
-                        <a
-                          href={`/api/download?public_id=${encodeURIComponent(file.public_id || '')}&resource_type=${encodeURIComponent(
-                            file.resource_type || ''
-                          )}&filename=${encodeURIComponent(file.original_name || `File ${index + 1}`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center mt-2 text-blue-600 dark:text-blue-400 hover:underline text-xs"
-                        >
-                          <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          Download {file.original_name || `File ${index + 1}`}
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Activity Section */}
+          <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Activity</h3>
             </div>
-          </div>
-        )}
-
-        {/* Activity Feed */}
-        <div>
-          <h3 className="text-sm font-medium text-gray-800 dark:text-white mb-3">Activity</h3>
-          <div className="space-y-2 max-h-60 overflow-y-auto">
-            {Array.isArray(notes) && notes.length > 0 ? (
-              notes.map((note) => {
-                const isOwnFeedback =
-                  note.note_type === 'FEEDBACK_IMAGE' &&
-                  session?.user?.id === note.user_id &&
-                  session?.user?.role === 'QA';
-                return (
-                  <div
-                    key={note.id}
-                    className={`p-3 rounded-lg ${note.note_type === 'APPROVAL'
-                      ? 'bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500'
-                      : note.note_type === 'REJECTION'
-                        ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500'
-                        : note.note_type === 'FEEDBACK_IMAGE'
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {Array.isArray(notes) && notes.length > 0 ? (
+                notes.map((note) => {
+                  const isOwnFeedback =
+                    note.note_type === 'FEEDBACK_IMAGE' &&
+                    session?.user?.id === note.user_id &&
+                    session?.user?.role === 'QA';
+                  return (
+                    <div
+                      key={note.id}
+                      className={`p-3 rounded-lg ${
+                        note.note_type === 'APPROVAL'
+                          ? 'bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500'
+                          : note.note_type === 'REJECTION'
+                          ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500'
+                          : note.note_type === 'FEEDBACK_IMAGE'
                           ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500'
                           : 'bg-gray-50 dark:bg-gray-700/50'
                       }`}
-                  >
-                    {note.note_type !== 'FEEDBACK_IMAGE' && (
-                      <p className="text-sm text-gray-800 dark:text-gray-200">{note.note}</p>
-                    )}
-                    {note.note_type === 'FEEDBACK_IMAGE' && (
-                      <div className="mb-2">
-                        <p className="text-sm text-gray-800 dark:text-gray-200 mb-2">{note.note}</p>
-                        {(() => {
-                          const meta = getFeedbackMeta(note);
-                          if (meta && meta.image && meta.image.url) {
-                            let imageUrl = meta.image.url;
-                            if (
-                              typeof imageUrl === 'string' &&
-                              !imageUrl.startsWith('http') &&
-                              meta.image.public_id &&
-                              typeof process !== 'undefined' &&
-                              typeof process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME === 'string' &&
-                              process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
-                            ) {
-                              const format = meta.image.format || 'jpg';
-                              imageUrl = `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload/${meta.image.public_id}.${format}`;
+                    >
+                      {note.note_type !== 'FEEDBACK_IMAGE' && (
+                        <p className="text-sm text-gray-800 dark:text-gray-200">{note.note}</p>
+                      )}
+                      {note.note_type === 'FEEDBACK_IMAGE' && (
+                        <div className="mb-2">
+                          <p className="text-sm text-gray-800 dark:text-gray-200 mb-2">{note.note}</p>
+                          {(() => {
+                            const meta = getFeedbackMeta(note);
+                            if (meta && meta.image && meta.image.url) {
+                              let imageUrl = meta.image.url;
+                              if (
+                                typeof imageUrl === 'string' &&
+                                !imageUrl.startsWith('http') &&
+                                meta.image.public_id &&
+                                typeof process !== 'undefined' &&
+                                typeof process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME === 'string' &&
+                                process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+                              ) {
+                                const format = meta.image.format || 'jpg';
+                                imageUrl = `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload/${meta.image.public_id}.${format}`;
+                              }
+                              return (
+                                <div className="mt-2">
+                                  <a
+                                    href={imageUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="block"
+                                  >
+                                    <img
+                                      src={imageUrl}
+                                      alt="Feedback"
+                                      className="w-full rounded border border-gray-300 dark:border-gray-600 cursor-pointer hover:opacity-90 transition-opacity"
+                                      style={{ maxHeight: '300px', objectFit: 'contain' }}
+                                      onError={(e) => {
+                                        const target = e.currentTarget as HTMLImageElement;
+                                        target.style.display = 'none';
+                                        const parent = target.parentElement;
+                                        if (parent) {
+                                          const fallback = document.createElement('div');
+                                          fallback.className =
+                                            'bg-gray-200 dark:bg-gray-700 p-4 rounded text-center text-sm text-gray-600 dark:text-gray-400';
+                                          fallback.innerHTML = `
+                                            <svg class="w-12 h-12 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                            </svg>
+                                            <p>Image failed to load</p>
+                                            <p class="text-xs mt-1">${meta.image.original_name || 'Unknown file'}</p>
+                                          `;
+                                          parent.appendChild(fallback);
+                                        }
+                                      }}
+                                    />
+                                  </a>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    {meta.image.original_name || 'Feedback image'}
+                                    {meta.image.bytes && ` • ${(meta.image.bytes / 1024).toFixed(1)} KB`}
+                                  </p>
+                                  {isOwnFeedback && (
+                                    <button
+                                      onClick={() => handleEditFeedback(note)}
+                                      className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                      type="button"
+                                    >
+                                      Edit Feedback
+                                    </button>
+                                  )}
+                                </div>
+                              );
                             }
                             return (
-                              <div className="mt-2">
-                                <a
-                                  href={imageUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="block"
-                                >
-                                  <img
-                                    src={imageUrl}
-                                    alt="Feedback"
-                                    className="w-full rounded border border-gray-300 dark:border-gray-600 cursor-pointer hover:opacity-90 transition-opacity"
-                                    style={{ maxHeight: '300px', objectFit: 'contain' }}
-                                    onError={(e) => {
-                                      const target = e.currentTarget as HTMLImageElement;
-                                      target.style.display = 'none';
-                                      const parent = target.parentElement;
-                                      if (parent) {
-                                        const fallback = document.createElement('div');
-                                        fallback.className =
-                                          'bg-gray-200 dark:bg-gray-700 p-4 rounded text-center text-sm text-gray-600 dark:text-gray-400';
-                                        fallback.innerHTML = `
-                                          <svg class="w-12 h-12 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                          </svg>
-                                          <p>Image failed to load</p>
-                                          <p class="text-xs mt-1">${meta.image.original_name || 'Unknown file'}</p>
-                                        `;
-                                        parent.appendChild(fallback);
-                                      }
-                                    }}
-                                  />
-                                </a>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                  {meta.image.original_name || 'Feedback image'}
-                                  {meta.image.bytes && ` • ${(meta.image.bytes / 1024).toFixed(1)} KB`}
-                                </p>
+                              <div className="bg-gray-200 dark:bg-gray-700 p-3 rounded text-center text-sm text-gray-600 dark:text-gray-400">
+                                <p>No image data available</p>
                                 {isOwnFeedback && (
                                   <button
                                     onClick={() => handleEditFeedback(note)}
@@ -992,72 +1115,59 @@ export default function TaskDetailSidebar({
                                 )}
                               </div>
                             );
-                          }
-                          return (
-                            <div className="bg-gray-200 dark:bg-gray-700 p-3 rounded text-center text-sm text-gray-600 dark:text-gray-400">
-                              <p>No image data available</p>
-                              {isOwnFeedback && (
-                                <button
-                                  onClick={() => handleEditFeedback(note)}
-                                  className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                                  type="button"
-                                >
-                                  Edit Feedback
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      {note.note_type === 'APPROVAL' && (
-                        <span className="inline-block mr-2 px-2 py-0.5 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 rounded text-[10px] font-medium">
-                          Approved
-                        </span>
+                          })()}
+                        </div>
                       )}
-                      {note.note_type === 'REJECTION' && (
-                        <span className="inline-block mr-2 px-2 py-0.5 bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200 rounded text-[10px] font-medium">
-                          Rejected
-                        </span>
-                      )}
-                      <span>{note.created_at ? new Date(note.created_at).toLocaleString() : ''}</span>
-                    </p>
-                  </div>
-                );
-              })
-            ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No activity yet</p>
-            )}
-          </div>
-          <div className="mt-3 flex">
-            <input
-              type="text"
-              value={newNote}
-              onChange={(e) => setNewNote(e.target.value)}
-              placeholder="Add a comment..."
-              className="flex-1 border border-gray-300 dark:border-gray-600 rounded-l px-3 py-2 text-gray-900 dark:text-white bg-white dark:bg-gray-700 text-sm"
-              aria-label="Add a comment"
-              onKeyDown={(e) => {
-                if (
-                  (e.key === 'Enter' ||
-                    (typeof (e as any).keyCode === 'number' ? (e as any).keyCode === 13 : false)) &&
-                  !noteLoading &&
-                  newNote.trim()
-                ) {
-                  e.preventDefault();
-                  handleAddNote();
-                }
-              }}
-            />
-            <button
-              onClick={handleAddNote}
-              disabled={noteLoading || !newNote.trim()}
-              className="bg-blue-600 text-white px-4 py-2 rounded-r hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
-              type="button"
-            >
-              {noteLoading ? 'Adding...' : 'Comment'}
-            </button>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {note.note_type === 'APPROVAL' && (
+                          <span className="inline-block mr-2 px-2 py-0.5 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 rounded text-[10px] font-medium">
+                            Approved
+                          </span>
+                        )}
+                        {note.note_type === 'REJECTION' && (
+                          <span className="inline-block mr-2 px-2 py-0.5 bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200 rounded text-[10px] font-medium">
+                            Rejected
+                          </span>
+                        )}
+                        <span>{note.created_at ? new Date(note.created_at).toLocaleString() : ''}</span>
+                      </p>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No activity yet</p>
+              )}
+            </div>
+            <div className="mt-3 flex">
+              <input
+                type="text"
+                value={newNote}
+                onChange={(e) => setNewNote(e.target.value)}
+                placeholder="Add a comment..."
+                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-white bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                aria-label="Add a comment"
+                onKeyDown={(e) => {
+                  const key = (e as React.KeyboardEvent<HTMLInputElement>).key || '';
+                  if (
+                    (key === 'Enter' ||
+                      (typeof (e as any).keyCode === 'number' ? (e as any).keyCode === 13 : false)) &&
+                    !noteLoading &&
+                    newNote.trim()
+                  ) {
+                    e.preventDefault();
+                    handleAddNote();
+                  }
+                }}
+              />
+              <button
+                onClick={handleAddNote}
+                disabled={noteLoading || !newNote.trim()}
+                className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 text-sm font-medium transition-all shadow-sm hover:shadow-md"
+                type="button"
+              >
+                {noteLoading ? 'Adding...' : 'Comment'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

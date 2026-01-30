@@ -72,30 +72,22 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900">
       {/* Sidebar */}
-      <aside className="w-64 bg-white dark:bg-gray-800 shadow-md flex flex-col">
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <Link href="/dashboard" className="text-xl font-bold text-gray-800 dark:text-white">ProjectFlow</Link>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{session.user.name}</p>
-          <span className="inline-block mt-2 px-2 py-1 text-xs font-semibold text-white bg-blue-600 rounded">
-            {session.user.role}
-          </span>
-        </div>
-
-        {/* Client-side sidebar content */}
-        <SidebarClient
-          userRole={session.user.role}
-          userProjects={userProjects}
-        />
-      </aside>
+      <SidebarClient
+        userRole={session.user.role}
+        userProjects={userProjects}
+        userName={session.user.name || ''}
+      />
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col">
-        <header className="p-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 flex justify-end">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="sticky top-0 z-30 p-4 border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm flex justify-end shadow-sm">
           <NotificationsBell />
         </header>
-        <div className="p-6">{children}</div>
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4 sm:p-6">{children}</div>
+        </div>
       </main>
     </div>
   );

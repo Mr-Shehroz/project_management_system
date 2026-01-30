@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import { toast } from 'react-hot-toast';
 import { Loader2, X, Pencil } from 'lucide-react';
 
 type User = {
@@ -175,6 +176,8 @@ export default function EditTaskModal({
       });
   
       if (res.ok) {
+        toast.success('Task updated successfully!');
+        window.dispatchEvent(new CustomEvent('refresh-tasks'));
         onUpdated();
         onClose();
       } else {

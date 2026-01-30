@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { toast } from 'react-hot-toast';
 import { Loader2, X, FolderPlus } from 'lucide-react';
 
 export default function CreateProjectModal({
@@ -30,6 +31,8 @@ export default function CreateProjectModal({
       });
 
       if (res.ok) {
+        toast.success('Project created successfully!');
+        window.dispatchEvent(new CustomEvent('refresh-tasks'));
         onClose();
       } else {
         const data = await res.json();

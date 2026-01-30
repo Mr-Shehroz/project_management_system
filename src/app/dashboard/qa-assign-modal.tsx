@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import { toast } from 'react-hot-toast';
 
 type User = {
   id: string;
@@ -44,7 +45,7 @@ export default function QAAssignModal({
   // In your QA Assign Modal:
   const handleAssign = async () => {
     if (!selectedQA) {
-      alert('Please select a QA reviewer');
+      toast.error('Please select a QA reviewer');
       return;
     }
 
@@ -57,63 +58,87 @@ export default function QAAssignModal({
       });
 
       if (res.ok) {
+        toast.success('QA reviewer assigned successfully!');
         onClose();
         window.dispatchEvent(new CustomEvent('refresh-tasks'));
       } else {
         const data = await res.json();
-        // ✅ Show specific error message
-        alert(data.error || 'Failed to assign QA');
+        toast.error(data.error || 'Failed to assign QA');
       }
     } catch (err) {
-      alert('Network error');
+      toast.error('Network error');
     } finally {
       setIsAssigning(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-        <h2 className="text-lg font-bold mb-4 text-gray-800 dark:text-white">Assign QA Reviewer</h2>
+    <>
+      {/* Soft backdrop */}
+      <div
+        className="fixed inset-0 z-40 backdrop-blur-sm"
+        onClick={onClose}
+      />
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-              Select QA Reviewer
-            </label>
-            <select
-              value={selectedQA}
-              onChange={(e) => setSelectedQA(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="">Select QA Reviewer</option>
-              {availableQAs.map((qa) => (
-                <option key={qa.id} value={qa.id}>
-                  {qa.name} ({qa.username})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex justify-end space-x-3 pt-2">
+      {/* Modal */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-5 flex items-center justify-between">
+            <h2 className="text-lg font-bold text-white">Assign QA Reviewer</h2>
             <button
-              type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+              className="text-white/80 hover:text-white transition"
             >
-              Cancel
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
-            <button
-              type="button"
-              onClick={handleAssign}
-              disabled={isAssigning || !selectedQA}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-            >
-              {isAssigning ? 'Assigning...' : 'Assign QA'}
-            </button>
+          </div>
+          
+          {/* Body */}
+          <div className="p-6">
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  Select QA Reviewer
+                </label>
+                <select
+                  value={selectedQA}
+                  onChange={(e) => setSelectedQA(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                >
+                  <option value="">Select QA Reviewer</option>
+                  {availableQAs.map((qa) => (
+                    <option key={qa.id} value={qa.id}>
+                      {qa.name} ({qa.username})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAssign}
+                  disabled={isAssigning || !selectedQA}
+                  className="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 shadow-lg transition-all"
+                >
+                  {isAssigning ? 'Assigning...' : 'Assign QA'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
