@@ -43,16 +43,16 @@ export default function NotificationToast({
       </audio>
       
       <div className="fixed top-4 right-4 z-50 animate-slide-in-right">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl border-l-4 border-green-500 min-w-[350px] max-w-[400px] overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border-l-4 border-gradient-blue-purple min-w-[350px] max-w-[400px] overflow-hidden">
           {/* Header */}
-          <div className="bg-green-500 px-4 py-2 flex items-center justify-between">
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2 flex items-center justify-between">
             <div className="flex items-center gap-2 text-white">
               <Bell className="w-5 h-5" />
               <span className="font-semibold">{notification.title}</span>
             </div>
             <button
               onClick={onClose}
-              className="text-white hover:bg-green-600 rounded p-1 transition-colors"
+              className="text-white/80 hover:text-white hover:bg-white/20 rounded p-1 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -61,8 +61,8 @@ export default function NotificationToast({
           {/* Body */}
           <div className="p-4">
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <Check className="w-6 h-6 text-green-600 dark:text-green-400" />
+              <div className="w-10 h-10 bg-gradient-to-r from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center flex-shrink-0">
+                <Check className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
               <div className="flex-1">
                 <p className="text-gray-600 dark:text-gray-300 text-sm">
@@ -78,7 +78,7 @@ export default function NotificationToast({
             {notification.taskId && (
               <button
                 onClick={onClick}
-                className="mt-3 w-full bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                className="mt-3 w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-lg"
               >
                 View Task
               </button>
@@ -101,6 +101,10 @@ export default function NotificationToast({
 
         .animate-slide-in-right {
           animation: slide-in-right 0.3s ease-out;
+        }
+
+        .border-gradient-blue-purple {
+          border-image: linear-gradient(to bottom, #2563eb, #9333ea) 1;
         }
       `}</style>
     </>

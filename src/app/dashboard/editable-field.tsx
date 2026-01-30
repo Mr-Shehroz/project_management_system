@@ -70,7 +70,7 @@ export default function EditableField({
           onChange={(e) => setEditValue(e.target.value)}
           onBlur={handleSave}
           onKeyDown={handleKeyDown}
-          className="w-full font-semibold text-gray-800 dark:text-white border-b-2 border-blue-500 focus:outline-none bg-transparent"
+          className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-semibold"
         />
       );
     } else {
@@ -82,7 +82,7 @@ export default function EditableField({
           onBlur={handleSave}
           onKeyDown={handleKeyDown}
           rows={2}
-          className="w-full text-sm text-gray-600 dark:text-gray-300 border-b-2 border-blue-500 focus:outline-none bg-transparent resize-none"
+          className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm resize-none"
         />
       );
     }

@@ -79,7 +79,7 @@ export default function NotificationsBell() {
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 relative"
+        className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition relative"
         aria-label="Notifications"
       >
         <svg
@@ -97,30 +97,38 @@ export default function NotificationsBell() {
           />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+          <span className="absolute top-0 right-0 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center shadow-lg">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+        <div 
+          className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-2xl shadow-2xl z-50 max-h-96 overflow-y-auto"
+          style={{ 
+            msOverflowStyle: 'none', 
+            scrollbarWidth: 'none',
+            WebkitOverflowScrolling: 'touch'
+          }}
+          onWheel={(e) => e.stopPropagation()}
+        >
+          <div className="p-4 border-b border-gray-300 dark:border-gray-600">
             <h3 className="font-semibold text-gray-800 dark:text-white">Notifications</h3>
           </div>
           {notifications.length === 0 ? (
             <p className="p-4 text-gray-500 dark:text-gray-400 text-sm">No notifications</p>
           ) : (
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            <ul className="divide-y divide-gray-300 dark:divide-gray-600">
               {notifications.map((notif) => (
                 <li
                   key={notif.id}
-                  className={`p-4 hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                  className={`p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition ${
                     !notif.is_read ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                   }`}
                 >
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-800 dark:text-gray-200">
+                  <div className="flex justify-between items-start">
+                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
                       {formatType(notif.type)}
                     </span>
                     <span className="text-xs text-gray-500 dark:text-gray-400">
@@ -133,7 +141,7 @@ export default function NotificationsBell() {
                   {!notif.is_read && (
                     <button
                       onClick={() => markAsRead(notif.id)}
-                      className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                      className="mt-2 px-3 py-1 text-xs font-medium bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition shadow-sm"
                     >
                       Mark as read
                     </button>

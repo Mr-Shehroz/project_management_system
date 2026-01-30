@@ -1,10 +1,10 @@
-// src/app/admin/register/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { UserRole, TeamType } from '@/db/schema';
+import { UserPlus, Loader2, CheckCircle } from 'lucide-react';
 
 type TeamLeader = {
   id: string;
@@ -17,7 +17,11 @@ export default function AdminRegisterPage() {
   const router = useRouter();
 
   if (status === 'loading') {
-    return <div className="p-6">Loading...</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin" />
+      </div>
+    );
   }
 
   if (!session || session.user.role !== 'ADMIN') {
@@ -39,7 +43,6 @@ export default function AdminRegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  // Fetch team leaders
   useEffect(() => {
     const fetchTeamLeaders = async () => {
       try {
@@ -71,7 +74,6 @@ export default function AdminRegisterPage() {
 
       if (res.ok) {
         setSuccess(true);
-        setError(null);
         setFormData({
           name: '',
           username: '',
@@ -80,182 +82,189 @@ export default function AdminRegisterPage() {
           team_type: '',
           team_leader_id: '',
         });
-        setTimeout(() => {
-          router.push('/dashboard');
-        }, 1500);
+        setTimeout(() => router.push('/dashboard'), 1500);
       } else {
         setError(data.error || 'Failed to create user');
       }
-    } catch (err) {
+    } catch {
       setError('Network error');
     } finally {
       setLoading(false);
     }
   };
 
-  // Determine if team_type is required
   const isTeamRole = !['ADMIN', 'PROJECT_MANAGER', 'QA'].includes(formData.role);
 
-  // Handle team leader selection
   const handleTeamLeaderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const tlId = e.target.value;
     setFormData(prev => ({
       ...prev,
       team_leader_id: tlId,
-      team_type: tlId 
+      team_type: tlId
         ? teamLeaders.find(tl => tl.id === tlId)?.team_type || ''
-        : prev.team_type
+        : prev.team_type,
     }));
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-tr from-blue-50 to-purple-50 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-2xl ring-1 ring-gray-200">
-        <h1 className="mb-6 text-center text-3xl font-extrabold text-gray-800">
-          Admin: Register New User
-        </h1>
-
-        {success && (
-          <p className="mb-4 rounded-md bg-green-100 px-4 py-2 text-center text-sm text-green-700">
-            User created successfully!
-          </p>
-        )}
-
-        {error && (
-          <p className="mb-4 rounded-md bg-red-100 px-4 py-2 text-center text-sm text-red-700">
-            {error}
-          </p>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Full Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Full Name
-            </label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) =>
-                setFormData({ ...formData, name: e.target.value })
-              }
-              required
-              className="mt-1 block w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-700 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-            />
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900 p-4">
+      <div className="w-full max-w-lg">
+        {/* Card */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden">
+          
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-8 py-6">
+            <div className="flex items-center justify-center gap-3">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                <UserPlus className="w-6 h-6 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-white">
+                Admin Registration
+              </h1>
+            </div>
+            <p className="text-center text-blue-100 mt-2 text-sm">
+              Create a new user account
+            </p>
           </div>
 
-          {/* Username */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Username
-            </label>
-            <input
-              type="text"
-              value={formData.username}
-              onChange={(e) =>
-                setFormData({ ...formData, username: e.target.value })
-              }
-              required
-              className="mt-1 block w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-700 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-            />
-          </div>
+          {/* Form */}
+          <div className="p-8">
+            {success && (
+              <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-center gap-2 justify-center">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                <p className="text-sm text-green-800 dark:text-green-200">
+                  User created successfully!
+                </p>
+              </div>
+            )}
 
-          {/* Password */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Password
-            </label>
-            <input
-              type="password"
-              value={formData.password}
-              onChange={(e) =>
-                setFormData({ ...formData, password: e.target.value })
-              }
-              required
-              className="mt-1 block w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-700 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-            />
-          </div>
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <p className="text-sm text-red-800 dark:text-red-200 text-center">
+                  {error}
+                </p>
+              </div>
+            )}
 
-          {/* Role */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Role
-            </label>
-            <select
-              value={formData.role}
-              onChange={(e) => {
-                const newRole = e.target.value as any;
-                setFormData({
-                  ...formData,
-                  role: newRole,
-                  team_type: ['ADMIN', 'PROJECT_MANAGER', 'QA'].includes(newRole) ? '' : TeamType[0],
-                  team_leader_id: '', // Reset when role changes
-                });
-              }}
-              required
-              className="mt-1 block w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-700 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-            >
-              {UserRole.map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {[
+                { label: 'Full Name', key: 'name', type: 'text' },
+                { label: 'Username', key: 'username', type: 'text' },
+                { label: 'Password', key: 'password', type: 'password' },
+              ].map(field => (
+                <div key={field.key}>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {field.label}
+                  </label>
+                  <input
+                    type={field.type}
+                    value={(formData as any)[field.key]}
+                    onChange={(e) =>
+                      setFormData({ ...formData, [field.key]: e.target.value })
+                    }
+                    required
+                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
               ))}
-            </select>
+
+              {/* Role */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Role
+                </label>
+                <select
+                  value={formData.role}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      role: e.target.value as any,
+                      team_type: '',
+                      team_leader_id: '',
+                    })
+                  }
+                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                >
+                  {UserRole.map(role => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Team Type */}
+              {isTeamRole && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Team Type
+                  </label>
+                  <select
+                    value={formData.team_type || ''}
+                    onChange={(e) =>
+                      setFormData({ ...formData, team_type: e.target.value })
+                    }
+                    required
+                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg"
+                  >
+                    <option value="">Select Team</option>
+                    {TeamType.map(team => (
+                      <option key={team} value={team}>
+                        {team}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Team Leader */}
+              {isTeamRole && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Team Leader
+                  </label>
+                  <select
+                    value={formData.team_leader_id}
+                    onChange={handleTeamLeaderChange}
+                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg"
+                  >
+                    <option value="">— No Team Leader —</option>
+                    {teamLeaders.map(tl => (
+                      <option key={tl.id} value={tl.id}>
+                        {tl.name} ({tl.team_type})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 shadow-lg"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-5 h-5" />
+                    Create User
+                  </>
+                )}
+              </button>
+            </form>
           </div>
 
-          {/* Team Type */}
-          {isTeamRole ? (
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Team Type *
-              </label>
-              <select
-                value={formData.team_type || ''}
-                onChange={(e) =>
-                  setFormData({ ...formData, team_type: e.target.value || null })
-                }
-                required
-                className="mt-1 block w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-700 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-              >
-                <option value="">Select Team</option>
-                {TeamType.map((team) => (
-                  <option key={team} value={team}>
-                    {team}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-
-          {/* Team Leader Dropdown */}
-          {isTeamRole && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Team Leader
-              </label>
-              <select
-                value={formData.team_leader_id}
-                onChange={handleTeamLeaderChange}
-                className="mt-1 block w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-700 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-              >
-                <option value="">— No Team Leader —</option>
-                {teamLeaders.map((tl) => (
-                  <option key={tl.id} value={tl.id}>
-                    {tl.name} ({tl.team_type})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-2 text-white shadow-md transition-transform hover:scale-105 hover:from-blue-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-50"
-          >
-            {loading ? 'Creating...' : 'Create User'}
-          </button>
-        </form>
+          {/* Footer */}
+          <div className="px-8 py-6 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700">
+            <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+              Admin access only
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
