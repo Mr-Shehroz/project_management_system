@@ -24,6 +24,7 @@ export async function GET() {
         name: users.name,
         username: users.username,
         team_type: users.team_type,
+        role: users.role, // ✅ Make sure this is included
       })
       .from(users)
       .where(eq(users.is_active, true));

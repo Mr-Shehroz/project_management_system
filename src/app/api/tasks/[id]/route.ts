@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { db } from '@/db';
-import { tasks, users, projects, notifications, taskTimers } from '@/db/schema'; // Import taskTimers
+import { tasks, users, projects, notifications, taskTimers } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -33,34 +33,203 @@ export async function PUT(
 
   const requestData = await request.json();
 
-  // Handle status updates separately
+  // --- NEW LOGIC: Comprehensive Status Updates (+ Notifications) ---
   if (requestData.status !== undefined) {
     const { status } = requestData;
-
-    // Validate status transitions
     const oldStatus = currentTask.status;
+    const newStatus = status;
+
+    // ✅ CLEAR QA ASSIGNMENT when task goes to REWORK
+    if (status === 'REWORK' && oldStatus !== 'REWORK') {
+      // Only QA can approve or request rework
+      if (session.user.role !== 'QA') {
+        return Response.json({ error: 'Only QA can approve or request rework' }, { status: 403 });
+      }
+      try {
+        await db
+          .update(tasks)
+          .set({
+            status: 'REWORK',
+            qa_assigned_to: null,
+            qa_assigned_at: null,
+            updated_at: new Date(),
+          })
+          .where(eq(tasks.id, id));
+
+        // Create notification for rework
+        const notifyUsers = await db
+          .select({ id: users.id, role: users.role })
+          .from(users)
+          .where(
+            or(
+              eq(users.role, 'ADMIN'),
+              eq(users.role, 'PROJECT_MANAGER'),
+              eq(users.role, 'TEAM_LEADER'),
+              eq(users.id, currentTask.assigned_to) // Original assignee
+            )
+          );
+
+        const notificationPromises = notifyUsers.map(user =>
+          db.insert(notifications).values({
+            id: uuidv4(),
+            user_id: user.id,
+            task_id: id,
+            type: 'TASK_REWORK',
+            is_read: false,
+            created_at: new Date(),
+          })
+        );
+
+        await Promise.all(notificationPromises);
+
+        return Response.json({ success: true }, { status: 200 });
+      } catch (err) {
+        console.error('Rework update error:', err);
+        return Response.json({ error: 'Failed to update task status' }, { status: 500 });
+      }
+    }
 
     // Only assigned member can move from IN_PROGRESS to WAITING_FOR_QA
-    if (oldStatus === 'IN_PROGRESS' && status === 'WAITING_FOR_QA') {
+    if (oldStatus === 'IN_PROGRESS' && newStatus === 'WAITING_FOR_QA') {
       if (currentTask.assigned_to !== session.user.id) {
         return Response.json({ error: 'Only the assigned member can submit for QA' }, { status: 403 });
       }
     }
 
-    // Only QA can approve or request rework
-    if ((status === 'APPROVED' || status === 'REWORK') && session.user.role !== 'QA') {
-      return Response.json({ error: 'Only QA can approve or request rework' }, { status: 403 });
+    // Only QA can approve
+    if (newStatus === 'APPROVED' && session.user.role !== 'QA') {
+      return Response.json({ error: 'Only QA can approve' }, { status: 403 });
     }
 
     // Only Admin/PM/Team Leader can move back to PENDING
-    if (status === 'PENDING' &&
-        !['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER'].includes(session.user.role)) {
+    if (
+      newStatus === 'PENDING' &&
+      !['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER'].includes(session.user.role)
+    ) {
       return Response.json({ error: 'Insufficient permissions to reset task status' }, { status: 403 });
     }
 
+    // --- REWRITE: Special handling for REWORK->WAITING_FOR_QA transition ---
+    if (requestData.status === 'WAITING_FOR_QA' && oldStatus === 'REWORK') {
+      // ✅ Reassign the same QA who originally reviewed it, if present. If not, clear QA assignment.
+      const existingTask = await db
+        .select({ qa_assigned_to: tasks.qa_assigned_to })
+        .from(tasks)
+        .where(eq(tasks.id, id))
+        .limit(1);
+
+      if (existingTask.length > 0 && existingTask[0].qa_assigned_to) {
+        // Reuse the same QA assignment
+        await db
+          .update(tasks)
+          .set({
+            status: 'WAITING_FOR_QA',
+            qa_assigned_to: existingTask[0].qa_assigned_to,
+            qa_assigned_at: new Date(), // Refresh assignment timestamp
+            updated_at: new Date(),
+          })
+          .where(eq(tasks.id, id));
+      } else {
+        // If no QA was assigned, treat as new submission (clear assignment)
+        await db
+          .update(tasks)
+          .set({
+            status: 'WAITING_FOR_QA',
+            updated_at: new Date(),
+          })
+          .where(eq(tasks.id, id));
+      }
+
+      // Send notification to Admin/PM/Team Leader to reassign if needed
+      // (only if no QA was previously assigned)
+      if (!existingTask[0]?.qa_assigned_to) {
+        const qaAssigners = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(
+            or(
+              eq(users.role, 'ADMIN'),
+              eq(users.role, 'PROJECT_MANAGER'),
+              eq(users.role, 'TEAM_LEADER')
+            )
+          );
+
+        const notificationPromises = qaAssigners.map(user =>
+          db.insert(notifications).values({
+            id: uuidv4(),
+            user_id: user.id,
+            task_id: id,
+            type: 'TASK_RESUBMITTED',
+            is_read: false,
+            created_at: new Date(),
+          })
+        );
+
+        await Promise.all(notificationPromises);
+      }
+
+      return Response.json({ success: true }, { status: 200 });
+    }
+
     try {
-      // Special handling: when moving to WAITING_FOR_QA, clear QA assignment
-      if (status === 'WAITING_FOR_QA') {
+      // Notifications logic per instructions.
+      // Only send notifications if the new status is different.
+      if (newStatus !== oldStatus) {
+        // APPROVED sends to admins, PM, leader, and original assignee.
+        if (newStatus === 'APPROVED') {
+          const notifyUsers = await db
+            .select({ id: users.id, role: users.role })
+            .from(users)
+            .where(
+              or(
+                eq(users.role, 'ADMIN'),
+                eq(users.role, 'PROJECT_MANAGER'),
+                eq(users.role, 'TEAM_LEADER'),
+                eq(users.id, currentTask.assigned_to)
+              )
+            );
+          const notificationPromises = notifyUsers.map(user =>
+            db.insert(notifications).values({
+              id: uuidv4(),
+              user_id: user.id,
+              task_id: id,
+              type: 'TASK_APPROVED',
+              is_read: false,
+              created_at: new Date(),
+            })
+          );
+          await Promise.all(notificationPromises);
+        }
+        // If re-submit from REWORK->WAITING_FOR_QA,
+        // now handled above, so NO notification logic here.
+        // Initial submit to WAITING_FOR_QA from IN_PROGRESS: notify QA
+        else if (newStatus === 'WAITING_FOR_QA' && oldStatus === 'IN_PROGRESS') {
+          // Try to get the QA assigned, fall back to PROJECT_MANAGER if no QA present.
+          let qaUserId: string | null = null;
+          if (currentTask.qa_assigned_to) {
+            qaUserId = currentTask.qa_assigned_to;
+          } else {
+            // Get a PM (if any) as fallback
+            const pm = await db.select({ id: users.id }).from(users).where(eq(users.role, 'PROJECT_MANAGER')).limit(1);
+            if (pm.length > 0) {
+              qaUserId = pm[0].id;
+            }
+          }
+          if (qaUserId) {
+            await db.insert(notifications).values({
+              id: uuidv4(),
+              user_id: qaUserId,
+              task_id: id,
+              type: 'QA_REVIEWED',
+              is_read: false,
+              created_at: new Date(),
+            });
+          }
+        }
+      }
+
+      // WAITING_FOR_QA: clear QA assignment
+      if (newStatus === 'WAITING_FOR_QA' && !(oldStatus === 'REWORK')) {
         await db
           .update(tasks)
           .set({
@@ -71,14 +240,13 @@ export async function PUT(
           .where(eq(tasks.id, id));
         return Response.json({ success: true }, { status: 200 });
       }
-      // ---- Custom: When marking as 'READY_FOR_ASSIGNMENT' send notifications ----
-      else if (status === 'READY_FOR_ASSIGNMENT') {
+      // READY_FOR_ASSIGNMENT notification logic (unchanged from original)
+      else if (newStatus === 'READY_FOR_ASSIGNMENT') {
         // Get the relevant team_type (from request body or use existing)
         let team_type = requestData.team_type;
         if (!team_type) {
           team_type = currentTask.team_type as string;
         }
-        // Send notifications only if team_type is available
         if (!team_type) {
           return Response.json({ error: 'Missing team_type for READY_FOR_ASSIGNMENT' }, { status: 400 });
         }
@@ -87,16 +255,14 @@ export async function PUT(
         const assignUsers = await db
           .select({ id: users.id })
           .from(users)
-          .where(or(
-            eq(users.role, 'ADMIN'),
-            eq(users.role, 'PROJECT_MANAGER'),
-            and(
-              eq(users.role, 'TEAM_LEADER'),
-              eq(users.team_type, team_type)
+          .where(
+            or(
+              eq(users.role, 'ADMIN'),
+              eq(users.role, 'PROJECT_MANAGER'),
+              and(eq(users.role, 'TEAM_LEADER'), eq(users.team_type, team_type))
             )
-          ));
+          );
 
-        // Create notifications
         const notificationPromises = assignUsers.map(user =>
           db.insert(notifications).values({
             id: uuidv4(),
@@ -109,7 +275,7 @@ export async function PUT(
         );
         await Promise.all(notificationPromises);
 
-        // Actually update the task's status
+        // Update the task's status
         await db
           .update(tasks)
           .set({
@@ -121,10 +287,11 @@ export async function PUT(
 
         return Response.json({ success: true }, { status: 200 });
       } else {
+        // For any other status change
         await db
           .update(tasks)
           .set({
-            status: status,
+            status: newStatus,
             updated_at: new Date(),
           })
           .where(eq(tasks.id, id));
@@ -157,7 +324,6 @@ export async function PUT(
 
   // Handle full update validation (Edit Task Modal)
   if (isFullUpdate) {
-    // Validate required fields for full updates
     if (!requestData.project_id || !requestData.team_type || !requestData.assigned_to) {
       return Response.json({ error: 'Missing required fields' }, { status: 400 });
     }
@@ -183,17 +349,13 @@ export async function PUT(
     const assignee = await db
       .select()
       .from(users)
-      .where(and(
-        eq(users.id, requestData.assigned_to),
-        eq(users.team_type, requestData.team_type)
-      ))
+      .where(and(eq(users.id, requestData.assigned_to), eq(users.team_type, requestData.team_type)))
       .limit(1);
 
     if (assignee.length === 0) {
       return Response.json({ error: 'Invalid assignee or team mismatch' }, { status: 400 });
     }
 
-    // Set all fields for full update
     updateFields.project_id = requestData.project_id;
     updateFields.team_type = requestData.team_type;
     updateFields.assigned_to = requestData.assigned_to;
@@ -261,12 +423,11 @@ export async function PUT(
     }
   }
 
-  // If no valid fields to update
   if (Object.keys(updateFields).length === 0) {
     return Response.json({ error: 'No valid fields to update' }, { status: 400 });
   }
 
-  // ---- Insert auto-start timer logic here, if assigned_to changes and is not a QA ----
+  // ---- Auto-start timer if assigned_to changes and is not a QA ----
   if (
     updateFields.assigned_to &&
     updateFields.assigned_to !== currentTask.assigned_to
@@ -277,7 +438,6 @@ export async function PUT(
       .where(eq(users.id, updateFields.assigned_to))
       .limit(1);
 
-    // ✅ Auto-start timer if assigned to non-QA user
     if (assignedUserArr.length > 0 && assignedUserArr[0].role !== 'QA') {
       try {
         await db.insert(taskTimers).values({
@@ -311,16 +471,14 @@ export async function PUT(
       const assignUsers = await db
         .select({ id: users.id })
         .from(users)
-        .where(or(
-          eq(users.role, 'ADMIN'),
-          eq(users.role, 'PROJECT_MANAGER'),
-          and(
-            eq(users.role, 'TEAM_LEADER'),
-            eq(users.team_type, updateFields.team_type)
+        .where(
+          or(
+            eq(users.role, 'ADMIN'),
+            eq(users.role, 'PROJECT_MANAGER'),
+            and(eq(users.role, 'TEAM_LEADER'), eq(users.team_type, updateFields.team_type))
           )
-        ));
+        );
 
-      // Create notifications
       const notificationPromises = assignUsers.map(user =>
         db.insert(notifications).values({
           id: uuidv4(),

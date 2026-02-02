@@ -230,14 +230,18 @@ export default function CreateTaskModal({
                   }
                   className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg"
                 >
-                  <option value="">Select Team</option>
-                  {Array.from(new Set(teamMembers.map((u) => u.team_type))).map(
-                    (type) => (
+                  <option disabled value="">
+                    Select Team
+                  </option>
+                  {Array.from(
+                    new Set(teamMembers.map((u) => u.team_type))
+                  )
+                    .filter((type) => type && type.trim() !== "")
+                    .map((type) => (
                       <option key={type} value={type}>
                         {type}
                       </option>
-                    )
-                  )}
+                    ))}
                 </select>
               </div>
 
@@ -261,31 +265,6 @@ export default function CreateTaskModal({
                           {u.name} ({u.username})
                         </option>
                       ))}
-                  </select>
-                </div>
-              )}
-
-              {qas.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    QA Reviewer (Optional)
-                  </label>
-                  <select
-                    value={formData.qa_assigned_to}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        qa_assigned_to: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg"
-                  >
-                    <option value="">No QA</option>
-                    {qas.map((qa) => (
-                      <option key={qa.id} value={qa.id}>
-                        {qa.name} ({qa.username})
-                      </option>
-                    ))}
                   </select>
                 </div>
               )}

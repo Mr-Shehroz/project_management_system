@@ -105,6 +105,9 @@ export const notifications = mysqlTable('notifications', {
     'READY_FOR_ASSIGNMENT',
     'TIME_EXCEEDED',
     'HELP_REQUEST', // ✅ ADD THIS
+    'TASK_APPROVED',      // ✅ Added
+    'TASK_REWORK',        // ✅ Added
+    'TASK_RESUBMITTED',   // ✅ Added - for reassignment
   ]).notNull(),
   is_read: boolean('is_read').default(false).notNull(),
   created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),

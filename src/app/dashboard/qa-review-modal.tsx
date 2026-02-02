@@ -207,6 +207,9 @@ export default function QAReviewModal({
     }
   };
 
+  // Changed - handleSubmit implements clearing QA assignment on REWORK, uses setError, and no toast
+  const [error, setError] = useState<string | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -231,16 +234,27 @@ export default function QAReviewModal({
       });
 
       if (res.ok) {
-        toast.success(`Task ${status === 'APPROVED' ? 'approved' : 'sent for rework'} successfully!`);
+        // ✅ If status is REWORK, also clear QA assignment in task
+        if (status === 'REWORK') {
+          // ✅ Keep QA assignment so task appears in REWORK column for QA
+          // Don't clear qa_assigned_to fields
+          await fetch(`/api/tasks/${taskId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              status: 'REWORK',
+              // qa_assigned_to remains unchanged
+            }),
+          });
+        }
         onClose();
-        // Refresh tasks after review
         window.dispatchEvent(new CustomEvent('refresh-tasks'));
       } else {
         const data = await res.json();
-        toast.error(data.error || 'Failed to submit review');
+        setError(data.error || 'Failed to submit review');
       }
     } catch (err) {
-      toast.error('Network error');
+      setError('Network error');
     } finally {
       setLoading(false);
     }
@@ -408,6 +422,10 @@ export default function QAReviewModal({
                 </div>
               )}
             </div>
+
+            {error && (
+              <div className="text-red-600 text-sm pt-2">{error}</div>
+            )}
 
             <div className="flex justify-end space-x-3 pt-2">
               <button

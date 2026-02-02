@@ -3,9 +3,9 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { db } from '@/db';
-import { taskNotes, tasks } from '@/db/schema';
+import { taskNotes, tasks, users, notifications } from '@/db/schema';
 import { v4 as uuidv4 } from 'uuid';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -90,6 +90,36 @@ export async function POST(request: NextRequest) {
         updated_at: new Date(),
       })
       .where(eq(tasks.id, task_id));
+
+    // --------- ADD NOTIFICATION LOGIC BELOW ------------
+    // Get all users who should be notified
+    const notifyUsers = await db
+      .select({ id: users.id, role: users.role })
+      .from(users)
+      .where(
+        or(
+          eq(users.role, 'ADMIN'),
+          eq(users.role, 'PROJECT_MANAGER'),
+          eq(users.role, 'TEAM_LEADER'),
+          eq(users.id, task[0].assigned_to)
+        )
+      );
+
+    // Create notifications based on status
+    const notificationType = status === 'APPROVED' ? 'TASK_APPROVED' : 'TASK_REWORK';
+
+    const notificationPromises = notifyUsers.map(user =>
+      db.insert(notifications).values({
+        id: uuidv4(),
+        user_id: user.id,
+        task_id: task_id,
+        type: notificationType,
+        is_read: false,
+        created_at: new Date(),
+      })
+    );
+
+    await Promise.all(notificationPromises);
 
     return Response.json({ success: true }, { status: 201 });
   } catch (err) {

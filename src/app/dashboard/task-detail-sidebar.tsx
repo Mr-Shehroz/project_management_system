@@ -107,6 +107,9 @@ export default function TaskDetailSidebar({
     is_rework?: boolean;
   } | null>(null);
 
+  // --- QA Assign Modal State (for "Assign QA" button) ---
+  const [showQAAssignModal, setShowQAAssignModal] = useState<string | null>(null);
+
   // ---- Fetch logic ----
   useEffect(() => {
     if (!taskId) return;
@@ -698,29 +701,44 @@ export default function TaskDetailSidebar({
                 </button>
               )}
 
-            {/* QA Feedback Button */}
+            {/* ✅ QA Feedback Button - Updated Logic */}
             {session?.user?.role === 'QA' &&
               task.qa_assigned_to === session?.user?.id && (
-                <button
-                  onClick={() => {
-                    window.dispatchEvent(
-                      new CustomEvent('qa-feedback', {
-                        detail: {
-                          taskId: task.id,
-                          taskTitle: task.title,
-                          taskDescription: task.description,
-                        },
-                      })
-                    );
-                  }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg text-sm font-medium transition-all shadow-sm hover:shadow-md"
-                  type="button"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  Give Feedback
-                </button>
+                <div className="mb-6">
+                  <button
+                    onClick={() => {
+                      window.dispatchEvent(
+                        new CustomEvent('qa-feedback', {
+                          detail: {
+                            taskId: task.id,
+                            taskTitle: task.title,
+                            taskDescription: task.description,
+                          },
+                        })
+                      );
+                    }}
+                    className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                    type="button"
+                  >
+                    📝 Give Feedback
+                  </button>
+                </div>
+              )}
+            {/* ✅ Assign QA Button - Show when task is WAITING_FOR_QA but no QA assigned */}
+            {(session?.user?.role === 'ADMIN' ||
+              session?.user?.role === 'PROJECT_MANAGER' ||
+              session?.user?.role === 'TEAM_LEADER') &&
+              task.status === 'WAITING_FOR_QA' &&
+              !task.qa_assigned_to && (
+                <div className="mb-6">
+                  <button
+                    onClick={() => setShowQAAssignModal(task.id)}
+                    className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors"
+                    type="button"
+                  >
+                    👤 Assign QA Reviewer
+                  </button>
+                </div>
               )}
 
             {/* Help Button */}

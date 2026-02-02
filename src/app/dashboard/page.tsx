@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { toast } from 'react-hot-toast';
 import CreateTaskModal from './create-task-modal';
@@ -529,6 +530,18 @@ export default function KanbanBoard() {
                 title = '✅ Ready for Assignment!';
                 message = `Task "${note.task_title}" in project "${note.project_name}" is ready for assignment`;
                 break;
+              case 'TASK_APPROVED':
+                title = '✅ Task Approved!';
+                message = `Task "${note.task_title}" has been approved by QA`;
+                break;
+              case 'TASK_REWORK':
+                title = '🔄 Task Needs Rework!';
+                message = `Task "${note.task_title}" has been sent back for rework by QA`;
+                break;
+              case 'TASK_RESUBMITTED':
+                title = '📤 Task Resubmitted for QA!';
+                message = `Task "${note.task_title}" has been resubmitted and needs QA reassignment`;
+                break;
               default:
                 continue;
             }
@@ -697,6 +710,53 @@ export default function KanbanBoard() {
     const finishCol = columns[destination.droppableId];
     if (!startCol || !finishCol) return;
 
+    const newStatus = destination.droppableId;
+    const oldStatus = source.droppableId;
+
+    // ✅ CLEAR QA ASSIGNMENT when moving to REWORK
+    if (newStatus === 'REWORK' && oldStatus !== 'REWORK') {
+      try {
+        const res = await fetch(`/api/tasks/${draggableId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'REWORK',
+            qa_assigned_to: null,
+            qa_assigned_to_name: null,
+            qa_assigned_at: null
+          }),
+        });
+        if (res.ok) {
+          fetchTasks(); // Refresh tasks
+        } else {
+          const data = await res.json();
+          alert(data.error || 'Failed to move task to rework');
+        }
+      } catch (err) {
+        alert('Network error');
+      }
+      return;
+    }
+
+    // --- New QA restriction logic ---
+    if (session?.user?.role === 'QA') {
+      // QA can only review tasks in WAITING_FOR_QA
+      // But they should be able to VIEW tasks in REWORK (handled in click only).
+      if (newStatus === 'WAITING_FOR_QA') {
+        alert('Only assignees can resubmit tasks for QA review');
+        fetchTasks();
+        return;
+      }
+      // Allow QA to open and view REWORK tasks via click handler above, but not move tasks to WAITING_FOR_QA.
+      // Do NOT allow QA to perform drag & drop status transitions at all otherwise.
+      // (If you want to prevent ALL QA drag, uncomment below)
+      // return;
+    }
+    // --- End QA restriction logic ---
+
+    // ... rest of the existing drag & drop logic for other status changes
+
+    // Update columns UI optimistically
     const newStartTaskIds = Array.from(startCol.taskIds);
     newStartTaskIds.splice(source.index, 1);
     const newFinishTaskIds = Array.from(finishCol.taskIds);
@@ -711,8 +771,6 @@ export default function KanbanBoard() {
     setColumns(newColumns);
 
     const task = tasks[draggableId];
-    const newStatus = destination.droppableId;
-    const oldStatus = source.droppableId;
 
     if (!task || !session?.user) {
       fetchTasks();
@@ -785,8 +843,8 @@ export default function KanbanBoard() {
   const currentProject = projects.find(p => p.id === projectId);
 
   // Determine if we should show the notification banner
-  const shouldShowNotificationBanner = 
-    !notificationBannerDismissed && 
+  const shouldShowNotificationBanner =
+    !notificationBannerDismissed &&
     notificationPermission !== 'granted';
 
   return (
@@ -802,6 +860,17 @@ export default function KanbanBoard() {
                 Manage tasks and track progress
               </p>
             )}
+
+            {/* Overview Dashboard link for admins only */}
+            {['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER'].includes(session?.user.role || '') && (
+              <Link
+                href="/dashboard/overview"
+                className="block w-full px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
+              >
+                Overview Dashboard
+              </Link>
+            )}
+            {/* End Overview Dashboard link */}
           </div>
 
           {/* Notification Bell Icon with Tooltip */}
@@ -970,7 +1039,7 @@ export default function KanbanBoard() {
           <div
             className="
               min-w-[250px] 
-              max-w-[320px]
+              max-w-[280px]
               w-[90vw]
               sm:w-[300px] 
               md:w-[280px]
@@ -1039,9 +1108,16 @@ export default function KanbanBoard() {
           {/* Kanban Columns */}
           {Object.values(columns)
             .filter(column => {
-              if (session?.user?.role === 'QA' && column.id === 'WAITING_FOR_QA') {
-                return false;
+              // QA should NOT see WAITING_FOR_QA
+              const isQA = session?.user?.role === 'QA';
+              if (isQA) {
+                if (column.id === 'WAITING_FOR_QA') {
+                  return false;
+                }
+                // Show IN_PROGRESS, REWORK, APPROVED for QA
+                return true;
               }
+              // All other roles see every column
               return true;
             })
             .map((column) => (
@@ -1060,7 +1136,7 @@ export default function KanbanBoard() {
                       sm:w-[300px]
                       md:w-[280px]
                       lg:w-[320px]
-                      xl:w-[340px]
+                      xl:w-[318px]
                       mx-0
                     `}
                     style={{
@@ -1088,6 +1164,15 @@ export default function KanbanBoard() {
 
                                   const isQaAlreadyAssigned = !!clickedTask.qa_assigned_at;
 
+                                  if (session?.user?.role === 'QA') {
+                                    // ✅ QA can view any task assigned to them, including REWORK
+                                    if (clickedTask.qa_assigned_to === session.user.id) {
+                                      setSelectedTaskId(clickedTask.id);
+                                    }
+                                    return;
+                                  }
+
+                                  // ... rest of your existing logic for other roles
                                   if (
                                     session?.user?.role === 'ADMIN' ||
                                     session?.user?.role === 'PROJECT_MANAGER' ||
@@ -1098,8 +1183,6 @@ export default function KanbanBoard() {
                                     } else {
                                       setSelectedTaskId(clickedTask.id);
                                     }
-                                  } else if (session?.user?.role === 'QA') {
-                                    setSelectedTaskId(clickedTask.id);
                                   } else {
                                     setSelectedTaskId(clickedTask.id);
                                   }
@@ -1184,13 +1267,12 @@ export default function KanbanBoard() {
 
                                 {/* Priority Badge */}
                                 <div className="mt-2 flex items-center justify-between">
-                                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                                    task.priority === 'HIGH'
+                                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${task.priority === 'HIGH'
                                       ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
                                       : task.priority === 'MEDIUM'
                                         ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
                                         : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                                  }`}>
+                                    }`}>
                                     {task.priority}
                                   </span>
                                 </div>
