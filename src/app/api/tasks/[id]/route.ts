@@ -109,52 +109,34 @@ export async function PUT(
       return Response.json({ error: 'Insufficient permissions to reset task status' }, { status: 403 });
     }
 
-    // --- REWRITE: Special handling for REWORK->WAITING_FOR_QA transition ---
-    if (requestData.status === 'WAITING_FOR_QA' && oldStatus === 'REWORK') {
-      // ✅ Reassign the same QA who originally reviewed it, if present. If not, clear QA assignment.
-      const existingTask = await db
-        .select({ qa_assigned_to: tasks.qa_assigned_to })
-        .from(tasks)
-        .where(eq(tasks.id, id))
-        .limit(1);
+    // --- REWRITE: Special handling for REWORK->WAITING_FOR_QA transition per prompt ---
+    if (oldStatus === 'REWORK' && status === 'WAITING_FOR_QA') {
+      try {
+        // Get the QA who was originally assigned
+        const qaUserId = currentTask.qa_assigned_to;
 
-      if (existingTask.length > 0 && existingTask[0].qa_assigned_to) {
-        // Reuse the same QA assignment
-        await db
-          .update(tasks)
-          .set({
-            status: 'WAITING_FOR_QA',
-            qa_assigned_to: existingTask[0].qa_assigned_to,
-            qa_assigned_at: new Date(), // Refresh assignment timestamp
-            updated_at: new Date(),
-          })
-          .where(eq(tasks.id, id));
-      } else {
-        // If no QA was assigned, treat as new submission (clear assignment)
-        await db
-          .update(tasks)
-          .set({
-            status: 'WAITING_FOR_QA',
-            updated_at: new Date(),
-          })
-          .where(eq(tasks.id, id));
-      }
-
-      // Send notification to Admin/PM/Team Leader to reassign if needed
-      // (only if no QA was previously assigned)
-      if (!existingTask[0]?.qa_assigned_to) {
-        const qaAssigners = await db
+        if (qaUserId) {
+          // Create notification for the assigned QA
+          await db.insert(notifications).values({
+            id: uuidv4(),
+            user_id: qaUserId,
+            task_id: id,
+            type: 'TASK_RESUBMITTED',
+            is_read: false,
+            created_at: new Date(),
+          });
+        }
+        // Also notify Admin/PM/Team Leader for oversight
+        const oversightUsers = await db
           .select({ id: users.id })
           .from(users)
-          .where(
-            or(
-              eq(users.role, 'ADMIN'),
-              eq(users.role, 'PROJECT_MANAGER'),
-              eq(users.role, 'TEAM_LEADER')
-            )
-          );
+          .where(or(
+            eq(users.role, 'ADMIN'),
+            eq(users.role, 'PROJECT_MANAGER'),
+            eq(users.role, 'TEAM_LEADER')
+          ));
 
-        const notificationPromises = qaAssigners.map(user =>
+        const oversightPromises = oversightUsers.map(user =>
           db.insert(notifications).values({
             id: uuidv4(),
             user_id: user.id,
@@ -165,12 +147,24 @@ export async function PUT(
           })
         );
 
-        await Promise.all(notificationPromises);
-      }
+        await Promise.all([...(qaUserId ? [Promise.resolve()] : []), ...oversightPromises]);
+        // Update task status
+        await db
+          .update(tasks)
+          .set({
+            status: 'WAITING_FOR_QA',
+            updated_at: new Date(),
+          })
+          .where(eq(tasks.id, id));
 
-      return Response.json({ success: true }, { status: 200 });
+        return Response.json({ success: true }, { status: 200 });
+      } catch (err) {
+        console.error('Resubmission notification error:', err);
+        return Response.json({ error: 'Failed to update task status' }, { status: 500 });
+      }
     }
 
+    // --- rest of your existing status handling logic ---
     try {
       // Notifications logic per instructions.
       // Only send notifications if the new status is different.
@@ -200,8 +194,6 @@ export async function PUT(
           );
           await Promise.all(notificationPromises);
         }
-        // If re-submit from REWORK->WAITING_FOR_QA,
-        // now handled above, so NO notification logic here.
         // Initial submit to WAITING_FOR_QA from IN_PROGRESS: notify QA
         else if (newStatus === 'WAITING_FOR_QA' && oldStatus === 'IN_PROGRESS') {
           // Try to get the QA assigned, fall back to PROJECT_MANAGER if no QA present.
@@ -228,7 +220,7 @@ export async function PUT(
         }
       }
 
-      // WAITING_FOR_QA: clear QA assignment
+      // WAITING_FOR_QA: clear QA assignment (unless REWORK branch, which we now handle above)
       if (newStatus === 'WAITING_FOR_QA' && !(oldStatus === 'REWORK')) {
         await db
           .update(tasks)

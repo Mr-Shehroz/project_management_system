@@ -6,8 +6,7 @@ import NotificationsBell from './notifications-bell';
 import { db } from '@/db';
 import { projects, tasks, users } from '@/db/schema';
 import { eq, inArray } from 'drizzle-orm';
-import SidebarClient from './sidebar-client';
-import Link from 'next/link';
+import SidebarClient, { LogoutButton } from './sidebar-client';
 
 type Project = {
   id: string;
@@ -28,10 +27,8 @@ export default async function DashboardLayout({
   let userProjects: Project[] = [];
 
   if (session.user.role === 'ADMIN' || session.user.role === 'PROJECT_MANAGER') {
-    // Admin & PM see all projects
     userProjects = (await db.select().from(projects)) as Project[];
   } else if (session.user.role === 'TEAM_LEADER') {
-    // Team Leader sees projects with tasks assigned to their team
     const teamMembers = await db
       .select({ id: users.id })
       .from(users)
@@ -53,10 +50,8 @@ export default async function DashboardLayout({
       }
     }
   } else if (session.user.role === 'QA') {
-    // QA: don't pass projects here - let sidebar fetch them
     userProjects = [];
   } else {
-    // Developer/Designer: only projects with their tasks
     const myTasks = await db
       .select({ project_id: tasks.project_id })
       .from(tasks)
@@ -72,20 +67,31 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900">
-      {/* Sidebar */}
+    <div className="flex min-h-screen bg-slate-50 dark:bg-gray-950">
+      {/* Sidebar — manages its own collapse and writes --sidebar-width to <html> */}
       <SidebarClient
         userRole={session.user.role}
         userProjects={userProjects}
         userName={session.user.name || ''}
       />
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="sticky top-0 z-30 p-4 border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm flex justify-end shadow-sm">
-          <NotificationsBell />
+      {/* Main content — margin-left is driven by SidebarClient via DOM id */}
+      <main
+        id="main-content"
+        className="flex-1 flex flex-col min-w-0 overflow-hidden"
+        style={{ marginLeft: '256px', transition: 'margin-left 300ms cubic-bezier(.4,0,.2,1)' }}
+      >
+        {/* Header */}
+        <header className="sticky top-0 z-30 h-14 border-b border-gray-200 dark:border-gray-800 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md flex items-center justify-between px-4 sm:px-6 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          <div />
+          <div className="flex items-center gap-1">
+            <NotificationsBell />
+            <LogoutButton />
+          </div>
         </header>
-        <div className="flex-1 overflow-y-auto">
+
+        {/* Page body */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden">
           <div className="p-4 sm:p-6">{children}</div>
         </div>
       </main>

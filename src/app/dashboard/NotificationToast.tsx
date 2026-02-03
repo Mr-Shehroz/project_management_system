@@ -4,7 +4,7 @@
 import { useEffect, useRef } from 'react';
 import { 
   Bell, X, CheckCircle, AlertTriangle, HelpCircle, 
-  Clock, User, RefreshCw, Upload, Check 
+  Clock, User, RefreshCw, Upload 
 } from 'lucide-react';
 
 type Notification = {
@@ -18,35 +18,63 @@ type Notification = {
 // Helper function to get icon based on notification type or title
 function getNotificationIcon(type: string | undefined, title: string) {
   const lowerTitle = title.toLowerCase();
-  
-  if (type === 'TIME_EXCEEDED' || lowerTitle.includes('time limit exceeded') || lowerTitle.includes('⏰')) {
+
+  if (
+    type === 'TIME_EXCEEDED' ||
+    lowerTitle.includes('time limit exceeded') ||
+    lowerTitle.includes('⏰')
+  ) {
     return <Clock className="w-6 h-6 text-red-600 dark:text-red-400" />;
   }
-  
-  if (type === 'HELP_REQUEST' || lowerTitle.includes('help requested') || lowerTitle.includes('🆘')) {
+
+  if (
+    type === 'HELP_REQUEST' ||
+    lowerTitle.includes('help requested') ||
+    lowerTitle.includes('🆘')
+  ) {
     return <HelpCircle className="w-6 h-6 text-purple-600 dark:text-purple-400" />;
   }
-  
-  if (type === 'QA_REVIEWED' || lowerTitle.includes('qa review') || lowerTitle.includes('🔍')) {
+
+  if (
+    type === 'QA_REVIEWED' ||
+    lowerTitle.includes('qa review') ||
+    lowerTitle.includes('🔍')
+  ) {
     return <User className="w-6 h-6 text-purple-600 dark:text-purple-400" />;
   }
-  
-  if (type === 'TASK_APPROVED' || lowerTitle.includes('approved') || lowerTitle.includes('✅')) {
+
+  if (
+    type === 'TASK_APPROVED' ||
+    lowerTitle.includes('approved') ||
+    lowerTitle.includes('✅')
+  ) {
     return <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />;
   }
-  
-  if (type === 'TASK_REWORK' || lowerTitle.includes('rework') || lowerTitle.includes('🔄')) {
+
+  if (
+    type === 'TASK_REWORK' ||
+    lowerTitle.includes('rework') ||
+    lowerTitle.includes('🔄')
+  ) {
     return <RefreshCw className="w-6 h-6 text-orange-600 dark:text-orange-400" />;
   }
   
-  if (type === 'TASK_RESUBMITTED' || lowerTitle.includes('resubmitted') || lowerTitle.includes('📤')) {
+  if (
+    type === 'TASK_RESUBMITTED' ||
+    lowerTitle.includes('resubmitted') ||
+    lowerTitle.includes('📤')
+  ) {
     return <Upload className="w-6 h-6 text-blue-600 dark:text-blue-400" />;
   }
-  
-  if (lowerTitle.includes('error') || lowerTitle.includes('failed') || lowerTitle.includes('⚠️')) {
+
+  if (
+    lowerTitle.includes('error') ||
+    lowerTitle.includes('failed') ||
+    lowerTitle.includes('⚠️')
+  ) {
     return <AlertTriangle className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />;
   }
-  
+
   // Default bell icon
   return <Bell className="w-6 h-6 text-blue-600 dark:text-blue-400" />;
 }
