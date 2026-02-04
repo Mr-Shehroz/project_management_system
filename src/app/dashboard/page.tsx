@@ -1,5 +1,4 @@
 // src/app/dashboard/page.tsx
-// src/app/dashboard/page.tsx
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
@@ -14,6 +13,7 @@ import NotificationToast from './NotificationToast';
 import EditTaskModal from './edit-task-modal';
 import QAAssignModal from './qa-assign-modal';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import InlineTaskCreator from './InlineTaskCreator';
 
 // --- UPDATED Task Type ---
 type Task = {
@@ -215,19 +215,16 @@ export default function KanbanBoard() {
     if (playSound) {
       playNotificationSound();
     }
-
     // Check if browser supports notifications
     if (!('Notification' in window)) {
       console.warn('This browser does not support desktop notifications');
       return;
     }
-
     // If permission is not granted, don't show desktop notification
     if (Notification.permission !== 'granted') {
       console.warn('Notification permission not granted');
       return;
     }
-
     try {
       const notification = new Notification(title, {
         body: message,
@@ -237,7 +234,6 @@ export default function KanbanBoard() {
         requireInteraction: false,
         silent: !playSound, // Only make sound if playSound is true
       });
-
       notification.onclick = function (event) {
         event.preventDefault();
         window.focus();
@@ -246,12 +242,10 @@ export default function KanbanBoard() {
         }
         notification.close();
       };
-
       // Auto-close after 10 seconds
       setTimeout(() => {
         notification.close();
       }, 10000);
-
       notification.onerror = function (event) {
         console.error('Notification error:', event);
       };
@@ -286,27 +280,22 @@ export default function KanbanBoard() {
       toast.error('Your browser does not support desktop notifications');
       return;
     }
-
     // Check current permission
     let permission = Notification.permission;
-
     // If denied, show instructions
     if (permission === 'denied') {
       toast.error('Notifications are blocked. Please enable them in your browser settings.');
       return;
     }
-
     // If not granted, request permission
     if (permission !== 'granted') {
       permission = await Notification.requestPermission();
     }
-
     // Handle result
     if (permission === 'granted') {
       setNotificationPermission('granted');
       setNotificationBannerDismissed(true);
       localStorage.setItem('notificationBannerDismissed', 'true');
-
       // Show success notification
       showDesktopNotification(
         '✅ Notifications Enabled!',
@@ -531,15 +520,12 @@ export default function KanbanBoard() {
               default:
                 continue;
             }
-
             // ✅ ALWAYS show desktop notification (even when tab is inactive)
             showDesktopNotification(title, message, note.task_id, true);
-
             // Show in-app toast ONLY if page is visible
             if (document.visibilityState === 'visible') {
               showInAppNotification(title, message, note.task_id);
             }
-
             // Mark as read
             try {
               await fetch('/api/notifications', {
@@ -787,6 +773,64 @@ Duration: ${Math.floor(timerData.duration_seconds / 60)}m ${timerData.duration_s
     };
   };
 
+  // ✅ INLINE TASK CREATION HANDLER
+  const handleInlineTaskCreate = async (taskData: {
+    title: string;
+    projectId: string;
+    teamType: string;
+    assignedTo: string;
+    priority: string;
+    estimatedMinutes: number | null;
+  }): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: taskData.projectId,
+          team_type: taskData.teamType,
+          title: taskData.title,
+          description: '',
+          priority: taskData.priority,
+          assigned_to: taskData.assignedTo,
+          qa_assigned_to: null,
+          estimated_minutes: taskData.estimatedMinutes,
+          status: 'IN_PROGRESS',
+          files: [],
+        }),
+      });
+
+      if (res.ok) {
+        const newTask = await res.json();
+
+        // Add to state immediately
+        setTasks(prev => ({
+          ...prev,
+          [newTask.id]: newTask
+        }));
+
+        setColumns(prev => {
+          const newColumns = { ...prev };
+          if (newColumns['IN_PROGRESS']) {
+            newColumns['IN_PROGRESS'].taskIds = [...newColumns['IN_PROGRESS'].taskIds, newTask.id];
+          }
+          return newColumns;
+        });
+
+        toast.success('Task created successfully!');
+        return true;
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to create task');
+        return false;
+      }
+    } catch (err) {
+      console.error('Failed to create task:', err);
+      toast.error('Network error');
+      return false;
+    }
+  };
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  RENDER
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1004,6 +1048,17 @@ Duration: ${Math.floor(timerData.duration_seconds / 60)}m ${timerData.duration_s
                     </div>
                     {/* Cards */}
                     <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
+                      {/* ✅ INLINE TASK CREATION - Only for IN_PROGRESS column */}
+                      {column.id === 'IN_PROGRESS' &&
+                        ['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER'].includes(session?.user.role || '') && (
+                          <InlineTaskCreator
+                            projects={projects}
+                            teamMembers={teamMembers}
+                            selectedProjectId={projectId}
+                            onCreate={handleInlineTaskCreate}
+                          />
+                        )}
+
                       {column.taskIds.map((taskId, index) => {
                         const task = tasks[taskId];
                         if (!task) return null;
