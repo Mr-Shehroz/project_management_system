@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { db } from '@/db';
 import { tasks, users, projects, notifications, taskTimers } from '@/db/schema';
-import { eq, and, or } from 'drizzle-orm';
+import { eq, and, or, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 
 // Helper for clean error response
@@ -92,14 +92,17 @@ export async function PUT(
         return errorJson('Only QA can approve or request rework', 403);
       }
       try {
-        await db.update(tasks)
+        await db
+          .update(tasks)
           .set({
             status: 'REWORK',
             qa_assigned_to: null,
             qa_assigned_at: null,
+            rework_count: sql`${tasks.rework_count} + 1`,
             updated_at: new Date(),
           })
           .where(eq(tasks.id, currentTask.id));
+
         // Notify admins/PM/leader/original assignee
         const notifyUsers = await db
           .select({ id: users.id })
@@ -127,7 +130,7 @@ export async function PUT(
         return NextResponse.json({ success: true }, { status: 200 });
       } catch (err) {
         console.error('Rework update error:', err);
-        return errorJson('Failed to update task status', 500);
+        return NextResponse.json({ error: 'Failed to update task status' }, { status: 500 });
       }
     }
 

@@ -66,6 +66,7 @@ export const tasks = mysqlTable('tasks', {
     started_at: timestamp('started_at'),
     completed_at: timestamp('completed_at'),
     locked_at: timestamp('locked_at'),
+    rework_count: int('rework_count').default(0).notNull(), // ✅ NEW FIELD
     created_at: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
     updated_at: timestamp('updated_at').default(sql`CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`),
   });
