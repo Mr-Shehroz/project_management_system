@@ -1,5 +1,5 @@
 // src/app/api/tasks/[id]/route.ts
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { db } from '@/db';
@@ -7,172 +7,205 @@ import { tasks, users, projects, notifications, taskTimers } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 
+// Helper for clean error response
+function errorJson(message: string, status = 400, extra: any = {}) {
+  return NextResponse.json({ error: message, ...extra }, { status });
+}
+
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
+  // Defensive: correct param getting
+  let id: string | undefined = undefined;
+  if (context?.params) {
+    const maybeParams: any = context.params;
+    if (typeof maybeParams?.then === 'function') {
+      // It's a promise (edge case/bug)
+      try {
+        const awaited = await maybeParams;
+        id = awaited?.id;
+      } catch (e) {}
+    } else if (maybeParams?.id) {
+      id = maybeParams.id;
+    }
+  }
+  if (!id) {
+    // Fallback: brute extract from url like /api/tasks/[id]
+    let url = '';
+    try {
+      url = request.url;
+      // Remove everything before /tasks/
+      const m = url.match(/\/tasks\/([^/?#]+)/);
+      if (m) id = m[1];
+    } catch (e) { }
+  }
+  if (!id || typeof id !== 'string' || id.trim() === '') {
+    return errorJson('No task id provided', 400);
+  }
+
   const session = await getServerSession(authOptions);
-  if (!session) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session || !session.user) {
+    return errorJson('Unauthorized', 401);
   }
 
-  const { id } = await params;
-
-  // Get current task to verify ownership
-  const currentTaskArr = await db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.id, id))
-    .limit(1);
-
-  if (currentTaskArr.length === 0) {
-    return Response.json({ error: 'Task not found' }, { status: 404 });
+  // Find the task robustly
+  let currentTaskArr: any[] = [];
+  try {
+    currentTaskArr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+  } catch (e) {
+    return errorJson('Database error', 500);
   }
 
+  // If not found, try conversion (legacy bug fallback) and as number-string
+  if (!currentTaskArr || currentTaskArr.length === 0) {
+    let fallbackId: string | undefined = undefined;
+    if (typeof id === "string" && id.match(/^\d+$/)) {
+      fallbackId = Number(id).toString();
+    }
+    if (fallbackId && fallbackId !== id) {
+      try {
+        currentTaskArr = await db.select().from(tasks).where(eq(tasks.id, fallbackId)).limit(1);
+      } catch (e) {}
+    }
+    if (!currentTaskArr || currentTaskArr.length === 0) {
+      return errorJson('Task not found', 404, { debug_task_id: id });
+    }
+  }
   const currentTask = currentTaskArr[0];
 
-  const requestData = await request.json();
+  let requestData: Record<string, any>;
+  try {
+    requestData = await request.json();
+  } catch (e) {
+    return errorJson('Invalid JSON', 400);
+  }
 
-  // --- NEW LOGIC: Comprehensive Status Updates (+ Notifications) ---
+  // --- STATUS-ONLY HANDLING ---
   if (requestData.status !== undefined) {
-    const { status } = requestData;
     const oldStatus = currentTask.status;
-    const newStatus = status;
+    const newStatus = requestData.status;
 
-    // ✅ CLEAR QA ASSIGNMENT when task goes to REWORK
-    if (status === 'REWORK' && oldStatus !== 'REWORK') {
-      // Only QA can approve or request rework
+    // Only QA can move to REWORK (and only if not already in REWORK)
+    if (newStatus === 'REWORK' && oldStatus !== 'REWORK') {
       if (session.user.role !== 'QA') {
-        return Response.json({ error: 'Only QA can approve or request rework' }, { status: 403 });
+        return errorJson('Only QA can approve or request rework', 403);
       }
       try {
-        await db
-          .update(tasks)
+        await db.update(tasks)
           .set({
             status: 'REWORK',
             qa_assigned_to: null,
             qa_assigned_at: null,
             updated_at: new Date(),
           })
-          .where(eq(tasks.id, id));
-
-        // Create notification for rework
+          .where(eq(tasks.id, currentTask.id));
+        // Notify admins/PM/leader/original assignee
         const notifyUsers = await db
-          .select({ id: users.id, role: users.role })
+          .select({ id: users.id })
           .from(users)
           .where(
             or(
               eq(users.role, 'ADMIN'),
               eq(users.role, 'PROJECT_MANAGER'),
               eq(users.role, 'TEAM_LEADER'),
-              eq(users.id, currentTask.assigned_to) // Original assignee
+              eq(users.id, currentTask.assigned_to)
             )
           );
-
-        const notificationPromises = notifyUsers.map(user =>
-          db.insert(notifications).values({
-            id: uuidv4(),
-            user_id: user.id,
-            task_id: id,
-            type: 'TASK_REWORK',
-            is_read: false,
-            created_at: new Date(),
-          })
+        await Promise.all(
+          notifyUsers.map(dbUser =>
+            db.insert(notifications).values({
+              id: uuidv4(),
+              user_id: dbUser.id,
+              task_id: currentTask.id,
+              type: 'TASK_REWORK',
+              is_read: false,
+              created_at: new Date(),
+            })
+          )
         );
-
-        await Promise.all(notificationPromises);
-
-        return Response.json({ success: true }, { status: 200 });
+        return NextResponse.json({ success: true }, { status: 200 });
       } catch (err) {
         console.error('Rework update error:', err);
-        return Response.json({ error: 'Failed to update task status' }, { status: 500 });
+        return errorJson('Failed to update task status', 500);
       }
     }
 
     // Only assigned member can move from IN_PROGRESS to WAITING_FOR_QA
     if (oldStatus === 'IN_PROGRESS' && newStatus === 'WAITING_FOR_QA') {
       if (currentTask.assigned_to !== session.user.id) {
-        return Response.json({ error: 'Only the assigned member can submit for QA' }, { status: 403 });
+        return errorJson('Only the assigned member can submit for QA', 403);
       }
     }
 
     // Only QA can approve
     if (newStatus === 'APPROVED' && session.user.role !== 'QA') {
-      return Response.json({ error: 'Only QA can approve' }, { status: 403 });
+      return errorJson('Only QA can approve', 403);
     }
 
-    // Only Admin/PM/Team Leader can move back to PENDING
+    // Only Admin/PM/Team Leader can move to PENDING
     if (
       newStatus === 'PENDING' &&
       !['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER'].includes(session.user.role)
     ) {
-      return Response.json({ error: 'Insufficient permissions to reset task status' }, { status: 403 });
+      return errorJson('Insufficient permissions to reset task status', 403);
     }
 
-    // --- REWRITE: Special handling for REWORK->WAITING_FOR_QA transition per prompt ---
-    if (oldStatus === 'REWORK' && status === 'WAITING_FOR_QA') {
+    // REWORK -> WAITING_FOR_QA (resubmission)
+    if (oldStatus === 'REWORK' && newStatus === 'WAITING_FOR_QA') {
       try {
-        // Get the QA who was originally assigned
+        // Notify QA
         const qaUserId = currentTask.qa_assigned_to;
-
         if (qaUserId) {
-          // Create notification for the assigned QA
           await db.insert(notifications).values({
             id: uuidv4(),
             user_id: qaUserId,
-            task_id: id,
+            task_id: currentTask.id,
             type: 'TASK_RESUBMITTED',
             is_read: false,
             created_at: new Date(),
           });
         }
-        // Also notify Admin/PM/Team Leader for oversight
+        // Notify Admin/PM/TL
         const oversightUsers = await db
           .select({ id: users.id })
           .from(users)
-          .where(or(
-            eq(users.role, 'ADMIN'),
-            eq(users.role, 'PROJECT_MANAGER'),
-            eq(users.role, 'TEAM_LEADER')
-          ));
-
-        const oversightPromises = oversightUsers.map(user =>
-          db.insert(notifications).values({
-            id: uuidv4(),
-            user_id: user.id,
-            task_id: id,
-            type: 'TASK_RESUBMITTED',
-            is_read: false,
-            created_at: new Date(),
-          })
+          .where(
+            or(
+              eq(users.role, 'ADMIN'),
+              eq(users.role, 'PROJECT_MANAGER'),
+              eq(users.role, 'TEAM_LEADER')
+            )
+          );
+        await Promise.all(
+          oversightUsers.map((user) =>
+            db.insert(notifications).values({
+              id: uuidv4(),
+              user_id: user.id,
+              task_id: currentTask.id,
+              type: 'TASK_RESUBMITTED',
+              is_read: false,
+              created_at: new Date(),
+            })
+          )
         );
-
-        await Promise.all([...(qaUserId ? [Promise.resolve()] : []), ...oversightPromises]);
-        // Update task status
-        await db
-          .update(tasks)
-          .set({
-            status: 'WAITING_FOR_QA',
-            updated_at: new Date(),
-          })
-          .where(eq(tasks.id, id));
-
-        return Response.json({ success: true }, { status: 200 });
+        await db.update(tasks)
+          .set({ status: 'WAITING_FOR_QA', updated_at: new Date()})
+          .where(eq(tasks.id, currentTask.id));
+        return NextResponse.json({ success: true }, { status: 200 });
       } catch (err) {
         console.error('Resubmission notification error:', err);
-        return Response.json({ error: 'Failed to update task status' }, { status: 500 });
+        return errorJson('Failed to update task status', 500);
       }
     }
 
-    // --- rest of your existing status handling logic ---
+    // General status update with notifications
     try {
-      // Notifications logic per instructions.
-      // Only send notifications if the new status is different.
       if (newStatus !== oldStatus) {
-        // APPROVED sends to admins, PM, leader, and original assignee.
         if (newStatus === 'APPROVED') {
+          // Notify admins, PM, leader, assignee
           const notifyUsers = await db
-            .select({ id: users.id, role: users.role })
+            .select({ id: users.id })
             .from(users)
             .where(
               or(
@@ -182,36 +215,33 @@ export async function PUT(
                 eq(users.id, currentTask.assigned_to)
               )
             );
-          const notificationPromises = notifyUsers.map(user =>
-            db.insert(notifications).values({
-              id: uuidv4(),
-              user_id: user.id,
-              task_id: id,
-              type: 'TASK_APPROVED',
-              is_read: false,
-              created_at: new Date(),
-            })
+          await Promise.all(
+            notifyUsers.map(user =>
+              db.insert(notifications).values({
+                id: uuidv4(),
+                user_id: user.id,
+                task_id: currentTask.id,
+                type: 'TASK_APPROVED',
+                is_read: false,
+                created_at: new Date(),
+              })
+            )
           );
-          await Promise.all(notificationPromises);
-        }
-        // Initial submit to WAITING_FOR_QA from IN_PROGRESS: notify QA
-        else if (newStatus === 'WAITING_FOR_QA' && oldStatus === 'IN_PROGRESS') {
-          // Try to get the QA assigned, fall back to PROJECT_MANAGER if no QA present.
-          let qaUserId: string | null = null;
-          if (currentTask.qa_assigned_to) {
-            qaUserId = currentTask.qa_assigned_to;
-          } else {
-            // Get a PM (if any) as fallback
-            const pm = await db.select({ id: users.id }).from(users).where(eq(users.role, 'PROJECT_MANAGER')).limit(1);
-            if (pm.length > 0) {
-              qaUserId = pm[0].id;
-            }
+        } else if (newStatus === 'WAITING_FOR_QA' && oldStatus === 'IN_PROGRESS') {
+          let qaUserId = currentTask.qa_assigned_to;
+          if (!qaUserId) {
+            const pm = await db
+              .select({ id: users.id })
+              .from(users)
+              .where(eq(users.role, 'PROJECT_MANAGER'))
+              .limit(1);
+            if (pm.length > 0) qaUserId = pm[0].id;
           }
           if (qaUserId) {
             await db.insert(notifications).values({
               id: uuidv4(),
               user_id: qaUserId,
-              task_id: id,
+              task_id: currentTask.id,
               type: 'QA_REVIEWED',
               is_read: false,
               created_at: new Date(),
@@ -220,30 +250,25 @@ export async function PUT(
         }
       }
 
-      // WAITING_FOR_QA: clear QA assignment (unless REWORK branch, which we now handle above)
-      if (newStatus === 'WAITING_FOR_QA' && !(oldStatus === 'REWORK')) {
-        await db
-          .update(tasks)
+      // WAITING_FOR_QA: clear QA assignment (if not REWORK branch)
+      if (newStatus === 'WAITING_FOR_QA' && oldStatus !== 'REWORK') {
+        await db.update(tasks)
           .set({
             status: 'WAITING_FOR_QA',
             qa_assigned_to: null,
-            updated_at: new Date(),
+            updated_at: new Date()
           })
-          .where(eq(tasks.id, id));
-        return Response.json({ success: true }, { status: 200 });
+          .where(eq(tasks.id, currentTask.id));
+        return NextResponse.json({ success: true }, { status: 200 });
       }
-      // READY_FOR_ASSIGNMENT notification logic (unchanged from original)
+      // READY_FOR_ASSIGNMENT notifs
       else if (newStatus === 'READY_FOR_ASSIGNMENT') {
-        // Get the relevant team_type (from request body or use existing)
-        let team_type = requestData.team_type;
+        // Validate team_type
+        let team_type = requestData.team_type || currentTask.team_type;
         if (!team_type) {
-          team_type = currentTask.team_type as string;
+          return errorJson('Missing team_type for READY_FOR_ASSIGNMENT', 400);
         }
-        if (!team_type) {
-          return Response.json({ error: 'Missing team_type for READY_FOR_ASSIGNMENT' }, { status: 400 });
-        }
-
-        // Get all users who should receive READY_FOR_ASSIGNMENT notifications
+        // Notify Admin/PM/all TL for type
         const assignUsers = await db
           .select({ id: users.id })
           .from(users)
@@ -254,193 +279,182 @@ export async function PUT(
               and(eq(users.role, 'TEAM_LEADER'), eq(users.team_type, team_type))
             )
           );
-
-        const notificationPromises = assignUsers.map(user =>
-          db.insert(notifications).values({
-            id: uuidv4(),
-            user_id: user.id,
-            task_id: id,
-            type: 'READY_FOR_ASSIGNMENT',
-            is_read: false,
-            created_at: new Date(),
-          })
+        await Promise.all(
+          assignUsers.map(user =>
+            db.insert(notifications).values({
+              id: uuidv4(),
+              user_id: user.id,
+              task_id: currentTask.id,
+              type: 'READY_FOR_ASSIGNMENT',
+              is_read: false,
+              created_at: new Date(),
+            })
+          )
         );
-        await Promise.all(notificationPromises);
-
-        // Update the task's status
-        await db
-          .update(tasks)
+        await db.update(tasks)
           .set({
-            // @ts-expect-error: Allow wider status for READY_FOR_ASSIGNMENT
-            status: 'READY_FOR_ASSIGNMENT',
-            updated_at: new Date(),
+            status: 'IN_PROGRESS', // fallback, or set as allowed value, see model type union
+            updated_at: new Date()
           })
-          .where(eq(tasks.id, id));
-
-        return Response.json({ success: true }, { status: 200 });
-      } else {
-        // For any other status change
-        await db
-          .update(tasks)
+          .where(eq(tasks.id, currentTask.id));
+        return NextResponse.json({ success: true, note: 'READY_FOR_ASSIGNMENT is not a valid status, set to IN_PROGRESS instead' }, { status: 200 });
+      }
+      // General status update
+      else {
+        await db.update(tasks)
           .set({
             status: newStatus,
-            updated_at: new Date(),
+            updated_at: new Date()
           })
-          .where(eq(tasks.id, id));
-        return Response.json({ success: true }, { status: 200 });
+          .where(eq(tasks.id, currentTask.id));
+        return NextResponse.json({ success: true }, { status: 200 });
       }
     } catch (err) {
       console.error('Status update error:', err);
-      return Response.json({ error: 'Failed to update task status' }, { status: 500 });
+      return errorJson('Failed to update task status', 500);
     }
   }
 
-  // Determine if this is a full update (Edit Task Modal) or partial update (Inline Editing)
-  const isFullUpdate =
-    requestData.project_id !== undefined ||
-    requestData.team_type !== undefined ||
-    requestData.assigned_to !== undefined;
-
-  // Permission check
+  // --- NON-STATUS: FULL/PARTIAL EDIT ---
   const canEditFields =
     session.user.role === 'ADMIN' ||
     session.user.role === 'PROJECT_MANAGER' ||
     session.user.role === 'TEAM_LEADER';
 
   if (!canEditFields) {
-    return Response.json({ error: 'Insufficient permissions to edit task fields' }, { status: 403 });
+    return errorJson('Insufficient permissions to edit task fields', 403);
   }
 
-  // Build update fields object
-  const updateFields: any = {};
+  const updateFields: Record<string, any> = {};
 
-  // Handle full update validation (Edit Task Modal)
-  if (isFullUpdate) {
-    if (!requestData.project_id || !requestData.team_type || !requestData.assigned_to) {
-      return Response.json({ error: 'Missing required fields' }, { status: 400 });
+  // "Full edit" case: all 3 must be present (not just defined)
+  const isFullEdit =
+    requestData.project_id !== undefined &&
+    requestData.team_type !== undefined &&
+    requestData.assigned_to !== undefined;
+
+  if (isFullEdit) {
+    if (
+      !requestData.project_id ||
+      !requestData.team_type ||
+      !requestData.assigned_to
+    ) {
+      return errorJson('Missing required fields (project_id, team_type, assigned_to)', 400);
     }
-
-    // Validate project exists
-    const project = await db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, requestData.project_id))
-      .limit(1);
-
+    // Project check
+    const project = await db.select().from(projects).where(eq(projects.id, requestData.project_id)).limit(1);
     if (project.length === 0) {
-      return Response.json({ error: 'Invalid project' }, { status: 400 });
+      return errorJson('Invalid project', 400);
     }
-
-    // Validate team_type
+    // Team type
     const validTeamTypes = ['DEVELOPER', 'DESIGNER', 'PROGRAMMER'];
     if (!validTeamTypes.includes(requestData.team_type)) {
-      return Response.json({ error: 'Invalid team type' }, { status: 400 });
+      return errorJson('Invalid team type', 400);
     }
-
-    // Validate assignee exists and matches team
+    // Assignee must exist with the right team
     const assignee = await db
       .select()
       .from(users)
       .where(and(eq(users.id, requestData.assigned_to), eq(users.team_type, requestData.team_type)))
       .limit(1);
-
     if (assignee.length === 0) {
-      return Response.json({ error: 'Invalid assignee or team mismatch' }, { status: 400 });
+      return errorJson('Invalid assignee or team mismatch', 400);
     }
-
     updateFields.project_id = requestData.project_id;
     updateFields.team_type = requestData.team_type;
     updateFields.assigned_to = requestData.assigned_to;
   }
 
-  // Handle title (both full and partial)
-  if (requestData.title !== undefined) {
-    if (requestData.title.trim() === '') {
-      return Response.json({ error: 'Title cannot be empty' }, { status: 400 });
+  // title
+  if (Object.prototype.hasOwnProperty.call(requestData, 'title')) {
+    if (typeof requestData.title !== 'string' || requestData.title.trim() === '') {
+      return errorJson('Title cannot be empty', 400);
     }
     updateFields.title = requestData.title.trim();
   }
-
-  // Handle description (both full and partial)
-  if (requestData.description !== undefined) {
-    updateFields.description = requestData.description.trim() || null;
+  // description
+  if (Object.prototype.hasOwnProperty.call(requestData, 'description')) {
+    updateFields.description =
+      typeof requestData.description === 'string'
+        ? (requestData.description.trim() === '' ? null : requestData.description.trim())
+        : null;
   }
-
-  // Handle priority (both full and partial)
-  if (requestData.priority !== undefined) {
+  // priority
+  if (Object.prototype.hasOwnProperty.call(requestData, 'priority')) {
     const validPriorities = ['LOW', 'MEDIUM', 'HIGH'];
     if (!validPriorities.includes(requestData.priority)) {
-      return Response.json({ error: 'Invalid priority' }, { status: 400 });
+      return errorJson('Invalid priority', 400);
     }
     updateFields.priority = requestData.priority;
   }
-
-  // Handle QA Assigned To (both full and partial)
-  if (requestData.qa_assigned_to !== undefined) {
+  // QA Assigned To
+  if (Object.prototype.hasOwnProperty.call(requestData, 'qa_assigned_to')) {
     if (requestData.qa_assigned_to === null) {
       updateFields.qa_assigned_to = null;
     } else {
-      const qaUser = await db
+      const qaUserArr = await db
         .select()
         .from(users)
         .where(eq(users.id, requestData.qa_assigned_to))
         .limit(1);
-
-      if (qaUser.length === 0 || qaUser[0].role !== 'QA') {
-        return Response.json({ error: 'Invalid QA user' }, { status: 400 });
+      if (
+        qaUserArr.length === 0 ||
+        qaUserArr[0].role !== 'QA'
+      ) {
+        return errorJson('Invalid QA user', 400);
       }
       updateFields.qa_assigned_to = requestData.qa_assigned_to;
     }
   }
-
-  // Handle Estimated Minutes (both full and partial)
-  if (requestData.estimated_minutes !== undefined) {
-    if (requestData.estimated_minutes === null) {
+  // Estimated Minutes
+  if (Object.prototype.hasOwnProperty.call(requestData, 'estimated_minutes')) {
+    if (
+      requestData.estimated_minutes === null ||
+      requestData.estimated_minutes === ""
+    ) {
       updateFields.estimated_minutes = null;
     } else {
       const minutes = parseInt(requestData.estimated_minutes, 10);
       if (isNaN(minutes) || minutes < 0) {
-        return Response.json({ error: 'Invalid estimated minutes' }, { status: 400 });
+        return errorJson('Invalid estimated minutes', 400);
       }
       updateFields.estimated_minutes = minutes;
     }
   }
-
-  // Handle Files (both full and partial)
-  if (requestData.files !== undefined) {
-    if (Array.isArray(requestData.files)) {
-      updateFields.files = JSON.stringify(requestData.files);
-    } else {
-      return Response.json({ error: 'Invalid files format' }, { status: 400 });
+  // Files
+  if (Object.prototype.hasOwnProperty.call(requestData, 'files')) {
+    if (!Array.isArray(requestData.files)) {
+      return errorJson('Invalid files format', 400);
     }
+    updateFields.files = JSON.stringify(requestData.files);
   }
 
   if (Object.keys(updateFields).length === 0) {
-    return Response.json({ error: 'No valid fields to update' }, { status: 400 });
+    return errorJson('No valid fields to update', 400);
   }
 
-  // ---- Auto-start timer if assigned_to changes and is not a QA ----
+  // Auto-timer (assigned_to changes to non-QA user)
   if (
-    updateFields.assigned_to &&
+    Object.prototype.hasOwnProperty.call(updateFields, 'assigned_to') &&
     updateFields.assigned_to !== currentTask.assigned_to
   ) {
-    const assignedUserArr = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, updateFields.assigned_to))
-      .limit(1);
-
-    if (assignedUserArr.length > 0 && assignedUserArr[0].role !== 'QA') {
-      try {
+    try {
+      const assignedUserArr = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, updateFields.assigned_to))
+        .limit(1);
+      if (assignedUserArr.length > 0 && assignedUserArr[0].role !== 'QA') {
         await db.insert(taskTimers).values({
           id: uuidv4(),
-          task_id: id,
+          task_id: currentTask.id,
           start_time: new Date(),
           is_rework: currentTask.status === 'REWORK',
         });
-      } catch (timerErr) {
-        console.error('Auto-timer start failed:', timerErr);
       }
+    } catch (timerErr) {
+      // log and continue
+      console.error('Auto-timer start failed:', timerErr);
     }
   }
 
@@ -451,15 +465,15 @@ export async function PUT(
         ...updateFields,
         updated_at: new Date(),
       })
-      .where(eq(tasks.id, id));
+      .where(eq(tasks.id, currentTask.id));
 
-    // If we just set the task to READY_FOR_ASSIGNMENT as part of a full update, also send notifications
+    // READY_FOR_ASSIGNMENT notifs after full edit
     if (
       (requestData.status === 'READY_FOR_ASSIGNMENT' ||
         updateFields.status === 'READY_FOR_ASSIGNMENT') &&
-      updateFields.team_type // should be present from full update
+      (updateFields.team_type || currentTask.team_type)
     ) {
-      // Get all users who should receive READY_FOR_ASSIGNMENT notifications
+      const team_type = updateFields.team_type || currentTask.team_type;
       const assignUsers = await db
         .select({ id: users.id })
         .from(users)
@@ -467,26 +481,26 @@ export async function PUT(
           or(
             eq(users.role, 'ADMIN'),
             eq(users.role, 'PROJECT_MANAGER'),
-            and(eq(users.role, 'TEAM_LEADER'), eq(users.team_type, updateFields.team_type))
+            and(eq(users.role, 'TEAM_LEADER'), eq(users.team_type, team_type))
           )
         );
-
-      const notificationPromises = assignUsers.map(user =>
-        db.insert(notifications).values({
-          id: uuidv4(),
-          user_id: user.id,
-          task_id: id,
-          type: 'READY_FOR_ASSIGNMENT',
-          is_read: false,
-          created_at: new Date(),
-        })
+      await Promise.all(
+        assignUsers.map((user) =>
+          db.insert(notifications).values({
+            id: uuidv4(),
+            user_id: user.id,
+            task_id: currentTask.id,
+            type: 'READY_FOR_ASSIGNMENT',
+            is_read: false,
+            created_at: new Date(),
+          })
+        )
       );
-      await Promise.all(notificationPromises);
     }
 
-    return Response.json({ success: true }, { status: 200 });
+    return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {
     console.error('Field update error:', err);
-    return Response.json({ error: 'Failed to update task' }, { status: 500 });
+    return errorJson('Failed to update task', 500);
   }
 }

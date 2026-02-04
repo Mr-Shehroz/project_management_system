@@ -2,9 +2,9 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { 
-  Bell, X, CheckCircle, AlertTriangle, HelpCircle, 
-  Clock, User, RefreshCw, Upload 
+import {
+  Bell, X, CheckCircle, AlertTriangle, HelpCircle,
+  Clock, User, RefreshCw, Upload
 } from 'lucide-react';
 
 type Notification = {
@@ -43,10 +43,18 @@ function getNotificationIcon(type: string | undefined, title: string) {
     return <User className="w-6 h-6 text-purple-600 dark:text-purple-400" />;
   }
 
+  // EDIT: add condition for TASK_COMPLETED, same icon/color as TASK_APPROVED
+  if (
+    type === 'TASK_COMPLETED' ||
+    lowerTitle.includes('completed') ||
+    lowerTitle.includes('✅')
+  ) {
+    return <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />;
+  }
+
   if (
     type === 'TASK_APPROVED' ||
-    lowerTitle.includes('approved') ||
-    lowerTitle.includes('✅')
+    lowerTitle.includes('approved')
   ) {
     return <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />;
   }
@@ -58,7 +66,7 @@ function getNotificationIcon(type: string | undefined, title: string) {
   ) {
     return <RefreshCw className="w-6 h-6 text-orange-600 dark:text-orange-400" />;
   }
-  
+
   if (
     type === 'TASK_RESUBMITTED' ||
     lowerTitle.includes('resubmitted') ||
@@ -82,66 +90,74 @@ function getNotificationIcon(type: string | undefined, title: string) {
 // Helper function to get border color based on notification type
 function getBorderColor(type: string | undefined, title: string) {
   const lowerTitle = title.toLowerCase();
-  
+
   if (type === 'TIME_EXCEEDED' || lowerTitle.includes('time limit exceeded') || lowerTitle.includes('⏰')) {
     return 'border-red-500';
   }
-  
+
   if (type === 'HELP_REQUEST' || lowerTitle.includes('help requested') || lowerTitle.includes('🆘')) {
     return 'border-purple-500';
   }
-  
+
   if (type === 'QA_REVIEWED' || lowerTitle.includes('qa review') || lowerTitle.includes('🔍')) {
     return 'border-purple-500';
   }
-  
-  if (type === 'TASK_APPROVED' || lowerTitle.includes('approved') || lowerTitle.includes('✅')) {
+
+  // Mark TASK_COMPLETED with green border like TASK_APPROVED
+  if (type === 'TASK_COMPLETED' || lowerTitle.includes('completed') || lowerTitle.includes('✅')) {
     return 'border-green-500';
   }
-  
+  if (type === 'TASK_APPROVED' || lowerTitle.includes('approved')) {
+    return 'border-green-500';
+  }
+
   if (type === 'TASK_REWORK' || lowerTitle.includes('rework') || lowerTitle.includes('🔄')) {
     return 'border-orange-500';
   }
-  
+
   if (type === 'TASK_RESUBMITTED' || lowerTitle.includes('resubmitted') || lowerTitle.includes('📤')) {
     return 'border-blue-500';
   }
-  
+
   if (lowerTitle.includes('error') || lowerTitle.includes('failed') || lowerTitle.includes('⚠️')) {
     return 'border-yellow-500';
   }
-  
+
   return 'border-blue-500';
 }
 
 // Helper function to get gradient background
 function getGradientBackground(type: string | undefined, title: string) {
   const lowerTitle = title.toLowerCase();
-  
+
   if (type === 'TIME_EXCEEDED' || lowerTitle.includes('time limit exceeded') || lowerTitle.includes('⏰')) {
     return 'from-red-600 to-red-700';
   }
-  
+
   if (type === 'HELP_REQUEST' || lowerTitle.includes('help requested') || lowerTitle.includes('🆘')) {
     return 'from-purple-600 to-purple-700';
   }
-  
+
   if (type === 'QA_REVIEWED' || lowerTitle.includes('qa review') || lowerTitle.includes('🔍')) {
     return 'from-purple-600 to-indigo-700';
   }
-  
-  if (type === 'TASK_APPROVED' || lowerTitle.includes('approved') || lowerTitle.includes('✅')) {
+
+  // Mark TASK_COMPLETED green like TASK_APPROVED
+  if (type === 'TASK_COMPLETED' || lowerTitle.includes('completed') || lowerTitle.includes('✅')) {
     return 'from-green-600 to-emerald-700';
   }
-  
+  if (type === 'TASK_APPROVED' || lowerTitle.includes('approved')) {
+    return 'from-green-600 to-emerald-700';
+  }
+
   if (type === 'TASK_REWORK' || lowerTitle.includes('rework') || lowerTitle.includes('🔄')) {
     return 'from-orange-600 to-red-700';
   }
-  
+
   if (type === 'TASK_RESUBMITTED' || lowerTitle.includes('resubmitted') || lowerTitle.includes('📤')) {
     return 'from-blue-600 to-indigo-700';
   }
-  
+
   return 'from-blue-600 to-purple-600';
 }
 
@@ -179,7 +195,7 @@ export default function NotificationToast({
       <audio ref={audioRef}>
         <source src="/notification.mp3" type="audio/mpeg" />
       </audio>
-      
+
       <div className="fixed top-4 right-4 z-50 animate-fade-in-up">
         <div className={`bg-white dark:bg-gray-800 rounded-xl shadow-lg ${borderColor} min-w-[320px] max-w-[400px] overflow-hidden transition-all duration-300 hover:shadow-xl`}>
           {/* Header */}
