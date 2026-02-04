@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 
+import UserEditModal from './UserEditModal';
+
 type Project = {
   id: string;
   name: string;
@@ -22,7 +24,7 @@ type User = {
   username: string;
   role: string;
   team_type?: string;
-};
+};  
 
 type Task = {
   id: string;
@@ -63,6 +65,7 @@ export default function OverviewDashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'projects' | 'team' | 'tasks'>('projects');
+  const [showEditUserModal, setShowEditUserModal] = useState<User | null>(null);
 
   // ✅ SAFETY: Check permissions and redirect if not authorized
   useEffect(() => {
@@ -261,7 +264,7 @@ export default function OverviewDashboard() {
                     <p className="text-sm text-gray-600 dark:text-gray-400">@{member.username}</p>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1 mb-3">
                   <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 rounded-full">
                     {member.role.replace('_', ' ')}
                   </span>
@@ -271,6 +274,15 @@ export default function OverviewDashboard() {
                     </span>
                   )}
                 </div>
+                {/* ✅ Edit User Button - Only for authorized roles */}
+                {['ADMIN', 'PROJECT_MANAGER', 'TEAM_LEADER'].includes(session?.user.role || '') && (
+                  <button
+                    onClick={() => setShowEditUserModal(member)}
+                    className="w-full px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    Edit User
+                  </button>
+                )}
               </div>
             ))}
             {teamMembers.length === 0 && (
@@ -336,6 +348,22 @@ export default function OverviewDashboard() {
               </table>
             </div>
           </div>
+        )}
+
+        {/* Edit User Modal */}
+        {showEditUserModal && (
+          <UserEditModal
+            user={showEditUserModal}
+            onClose={() => setShowEditUserModal(null)}
+            onUpdated={() => {
+              fetchOverviewData();
+              setShowEditUserModal(null);
+            }}
+            onDelete={() => {
+              fetchOverviewData();
+            }}
+            currentUserRole={session?.user.role || ''}
+          />
         )}
       </main>
     </div>
